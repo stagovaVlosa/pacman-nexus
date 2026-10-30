@@ -49,7 +49,7 @@ namespace Nexus
             else if (level.IsWalkable(cell + Dirs[0]))
                 h = Range(rng, 0.9f, 1.3f);
             else
-                h = Range(rng, 1.5f, 2.8f);
+                h = Range(rng, 1.4f, 2.2f);
             h = Mathf.Round(h * 4f) / 4f;
 
             float size = cs * 0.92f;

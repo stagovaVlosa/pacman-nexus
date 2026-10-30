@@ -6,7 +6,8 @@ namespace Nexus
     public class CameraFollow : MonoBehaviour
     {
         public Transform target;
-        public Vector3 offset = new Vector3(0f, 9f, -4.5f);
+        // ~70° down: steep enough that buildings in front never hide Pac-Man or the street
+        public Vector3 offset = new Vector3(0f, 9.5f, -3.5f);
         public float smoothTime = 0.18f;
 
         Vector3 velocity;

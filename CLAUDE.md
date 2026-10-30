@@ -34,8 +34,10 @@ The game must look like a **top-down cyberpunk city at night**, NOT a maze of pl
 - Visuals stay separate from gameplay: grid logic in `LevelBuilder` does not change because of art.
 
 ## Status notes
-- `Assets/Scripts/World/CityVisuals.cs` and `Assets/Scripts/Player/PacManModel.cs` were added but are
-  **not yet tested visually** in the Unity Editor. Check them in Play mode before building on them.
+- `Assets/Scripts/World/CityVisuals.cs` and `Assets/Scripts/Player/PacManModel.cs` were tested in Play mode (2026-10-30).
+  Camera ~70° (offset 0, 9.5, -3.5), inner buildings max ~2.2 (back row taller), mouth opens left/right (Y axis),
+  Pac-Man is saturated neon yellow. Known: at some spots a low building in front still hides Pac-Man's lower part
+  (proposed fix, not done: make buildings between camera and Pac-Man semi-transparent).
 
 ## Tooling
 - Claude is connected to the Unity Editor through **MCP for Unity** (UnityMCP tools): it can read the scene
