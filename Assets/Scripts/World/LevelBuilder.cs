@@ -6,7 +6,7 @@ namespace Nexus
     /// <summary>
     /// Reads a text layout and builds the maze.
     ///   #  wall           .  energy orb       C  Nexus Core
-    ///   P  player start   G  generator        H  enemy spawn (used later)
+    ///   P  player start   G  generator        H  enemy spawn (one Hunter each)
     ///   -  enemy door     (space) empty floor
     /// Row 0 of the text is the far (top) side of the maze.
     /// </summary>
@@ -27,6 +27,7 @@ namespace Nexus
         public GameObject corePrefab;
         public GameObject generatorPrefab;
         public GameObject playerPrefab;
+        public GameObject hunterPrefab;
 
         public int Width { get; private set; }
         public int Height { get; private set; }
@@ -133,6 +134,7 @@ namespace Nexus
             BuildFloor();
             BuildGenerator();
             BuildPlayer();
+            BuildEnemies();
         }
 
         void BuildWall(Vector2Int cell, Vector3 pos, Transform parent)
@@ -239,6 +241,37 @@ namespace Nexus
             }
             if (!go.TryGetComponent(out PlayerMovement mover)) mover = go.AddComponent<PlayerMovement>();
             mover.Init(this, PlayerStart);
+        }
+
+        void BuildEnemies()
+        {
+            var root = new GameObject("Enemies").transform;
+            root.SetParent(transform, false);
+            for (int i = 0; i < EnemySpawns.Count; i++)
+            {
+                GameObject go;
+                if (hunterPrefab != null)
+                {
+                    go = Instantiate(hunterPrefab, root);
+                }
+                else
+                {
+                    go = new GameObject("Hunter");
+                    go.transform.SetParent(root, false);
+                    var body = new GameObject("Body").transform;
+                    body.SetParent(go.transform, false);
+                    GhostModel.Create(body, 0.38f, Visuals.Hex("#D80A26"), Visuals.Hex("#FF0A1E"),
+                        new Color(1f, 0f, 0.04f));
+                    var light = new GameObject("Glow").AddComponent<Light>();
+                    light.transform.SetParent(go.transform, false);
+                    light.type = LightType.Point;
+                    light.color = Visuals.CorruptedRed;
+                    light.range = 2.5f;
+                    light.intensity = 1.5f;
+                }
+                if (!go.TryGetComponent(out HunterAI hunter)) hunter = go.AddComponent<HunterAI>();
+                hunter.Init(this, EnemySpawns[i]);
+            }
         }
     }
 }

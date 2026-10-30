@@ -52,6 +52,9 @@ Cut: Ending B, Lost Archives, Dash, Devour Mode, Ghost Vision, Magnetic Field, p
 ## Progress
 - [x] Week 1: grid builder, Pac-Man movement, camera, orbs, 10 Nexus Cores, generator, prototype HUD
 - [ ] Week 2-3: Hunter (BFS chase), lives + respawn, Energy Blast (Space)
+  - [x] Hunter: `Enemies/HunterAI.cs` (chase within 8 cells by maze route via `World/GridPath.cs` BFS, else wander),
+        `Enemies/GhostModel.cs` (red ghost, glowing eyes), spawns from `H` cells. No damage yet.
+        Note: the `-` door is currently walkable for Pac-Man too.
 - [ ] Week 4: minimap (gradual reveal), LevelTheme ScriptableObject, LevelManager, 5 layouts
 - [ ] Week 5: Neon District art, BYTE + dialogue UI
 - [ ] Week 6-7: Sentinel, Glitch, Eraser, other 4 themes, story
