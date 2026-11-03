@@ -131,6 +131,9 @@ namespace Nexus
                 }
             }
 
+            // Buildings between the camera and Pac-Man turn semi-transparent
+            wallsRoot.gameObject.AddComponent<BuildingFader>();
+
             BuildFloor();
             BuildGenerator();
             BuildPlayer();
@@ -260,8 +263,7 @@ namespace Nexus
                     go.transform.SetParent(root, false);
                     var body = new GameObject("Body").transform;
                     body.SetParent(go.transform, false);
-                    GhostModel.Create(body, 0.38f, Visuals.Hex("#D80A26"), Visuals.Hex("#FF0A1E"),
-                        new Color(1f, 0f, 0.04f));
+                    HunterDroneModel.Create(body, 0.38f);
                     var light = new GameObject("Glow").AddComponent<Light>();
                     light.transform.SetParent(go.transform, false);
                     light.type = LightType.Point;
