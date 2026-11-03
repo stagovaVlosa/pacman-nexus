@@ -17,6 +17,29 @@ namespace Nexus
         static readonly Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
         static readonly Dictionary<Vector2Int, int> depth = new Dictionary<Vector2Int, int>();
 
+        /// <summary>All walkable cells reachable from 'from' in at most 'steps' moves (not including 'from').</summary>
+        public static List<Vector2Int> CellsWithin(LevelBuilder level, Vector2Int from, int steps)
+        {
+            var result = new List<Vector2Int>();
+            var seen = new Dictionary<Vector2Int, int> { [from] = 0 };
+            var q = new Queue<Vector2Int>();
+            q.Enqueue(from);
+            while (q.Count > 0)
+            {
+                var c = q.Dequeue();
+                if (seen[c] >= steps) continue;
+                foreach (var dir in Dirs)
+                {
+                    var n = c + dir;
+                    if (!level.IsWalkable(n) || seen.ContainsKey(n)) continue;
+                    seen[n] = seen[c] + 1;
+                    result.Add(n);
+                    q.Enqueue(n);
+                }
+            }
+            return result;
+        }
+
         /// <summary>
         /// Finds the shortest path from 'from' to 'to' (at most maxDistance cells long).
         /// Returns false if there is no such path or from == to.

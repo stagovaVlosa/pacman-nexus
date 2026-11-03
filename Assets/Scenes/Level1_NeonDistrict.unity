@@ -577,7 +577,7 @@ MonoBehaviour:
   levelName: Neon District
   orbScore: 10
   coreScore: 500
-  orbEnergy: 4
+  orbEnergy: 1
   maxEnergy: 100
 --- !u!4 &2132548045
 Transform:

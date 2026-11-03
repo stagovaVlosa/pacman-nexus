@@ -89,7 +89,9 @@ namespace Nexus
         }
 
         /// <summary>Additive glow (Nexus/Glow shader). fresnel > 0 = rim glow only, 0 = flat glow.</summary>
-        public static Material Glow(Color color, float intensity, float fresnel, Texture2D mask = null, bool twoSided = false)
+        /// <param name="onTop">Draw through walls/buildings (ZTest Always), for markers like ground rings.</param>
+        public static Material Glow(Color color, float intensity, float fresnel, Texture2D mask = null, bool twoSided = false,
+                                    bool onTop = false)
         {
             var shader = Shader.Find("Nexus/Glow");
             if (shader == null) return Lit(color, 0f, 0.5f, color, intensity); // fallback, should not happen
@@ -99,6 +101,8 @@ namespace Nexus
             m.SetFloat("_FresnelPower", fresnel);
             if (mask != null) m.SetTexture("_MainTex", mask);
             m.SetFloat("_Cull", twoSided ? (float)UnityEngine.Rendering.CullMode.Off : (float)UnityEngine.Rendering.CullMode.Back);
+            m.SetFloat("_ZTest", onTop ? (float)UnityEngine.Rendering.CompareFunction.Always : (float)UnityEngine.Rendering.CompareFunction.LessEqual);
+            if (onTop) m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Overlay;
             return m;
         }
 
@@ -138,7 +142,11 @@ namespace Nexus
             var go = GameObject.CreatePrimitive(type);
             go.name = name;
             var col = go.GetComponent<Collider>();
-            if (col != null) Object.Destroy(col);
+            if (col != null)
+            {
+                if (Application.isPlaying) Object.Destroy(col);
+                else Object.DestroyImmediate(col); // Edit mode (screenshot tool)
+            }
             go.transform.SetParent(parent, false);
             go.transform.localPosition = localPos;
             go.transform.localScale = scale;

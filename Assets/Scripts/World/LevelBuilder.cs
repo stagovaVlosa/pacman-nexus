@@ -1,13 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Nexus
 {
     /// <summary>
     /// Reads a text layout and builds the maze.
     ///   #  wall           .  energy orb       C  Nexus Core
-    ///   P  player start   G  generator        H  enemy spawn (one Hunter each)
-    ///   -  enemy door     (space) empty floor
+    ///   P  player start   G  generator        -  enemy door     (space) empty floor
+    ///   Bugs (an orb is placed under B and the digits too):
+    ///   H  Chaser spawn   B  Blocker post     1-9  Patroller route: two cells with the same digit
     /// Row 0 of the text is the far (top) side of the maze.
     /// </summary>
     public class LevelBuilder : MonoBehaviour
@@ -27,14 +29,25 @@ namespace Nexus
         public GameObject corePrefab;
         public GameObject generatorPrefab;
         public GameObject playerPrefab;
-        public GameObject hunterPrefab;
+        [FormerlySerializedAs("hunterPrefab")] public GameObject bugPrefab;
 
         public int Width { get; private set; }
         public int Height { get; private set; }
         public int CoreCount { get; private set; }
         public Vector2Int PlayerStart { get; private set; }
         public Vector2Int GeneratorCell { get; private set; }
-        public readonly List<Vector2Int> EnemySpawns = new List<Vector2Int>();
+        /// <summary>Every Bug of the level, Chasers first.</summary>
+        public readonly List<BugSpawn> BugSpawns = new List<BugSpawn>();
+
+        public struct BugSpawn
+        {
+            public BugType type;
+            public Vector2Int cell;
+            public Vector2Int routeEnd;   // Patroller only
+        }
+
+        /// <summary>Cells that started with a Nexus Core (use HasCore to see if it is still there).</summary>
+        public readonly List<Vector2Int> CoreCells = new List<Vector2Int>();
 
         bool[,] walls;
         readonly Dictionary<Vector2Int, Collectible> collectibles = new Dictionary<Vector2Int, Collectible>();
@@ -62,6 +75,10 @@ namespace Nexus
         public Vector2Int WorldToCell(Vector3 p) =>
             new Vector2Int(Mathf.RoundToInt(p.x / cellSize), Height - 1 - Mathf.RoundToInt(p.z / cellSize));
 
+        /// <summary>True while the Nexus Core on this cell has not been collected yet.</summary>
+        public bool HasCore(Vector2Int c) =>
+            collectibles.TryGetValue(c, out var item) && item != null && item.kind == Collectible.Kind.NexusCore;
+
         /// <summary>Called by the player every time it reaches the center of a cell.</summary>
         public void OnPlayerEnteredCell(Vector2Int cell)
         {
@@ -88,6 +105,7 @@ namespace Nexus
             var wallsRoot = new GameObject("Walls").transform;
             var itemsRoot = new GameObject("Collectibles").transform;
             wallsRoot.SetParent(transform, false);
+            CityVisuals.BeginCity(transform);
             itemsRoot.SetParent(transform, false);
 
             // Pass 1: read the grid (walls must be known before buildings look at their neighbours)
@@ -108,8 +126,17 @@ namespace Nexus
                 for (int x = 0; x < Width; x++)
                     if (walls[x, y]) BuildWall(new Vector2Int(x, y), CellToWorld(new Vector2Int(x, y)), wallsRoot);
 
+            var blockers = new List<Vector2Int>();
+            var routes = new SortedDictionary<char, List<Vector2Int>>();
             foreach (var (cell, ch) in walkableItems)
             {
+                if (ch >= '1' && ch <= '9')
+                {
+                    if (!routes.TryGetValue(ch, out var route)) routes[ch] = route = new List<Vector2Int>();
+                    route.Add(cell);
+                    AddCollectible(cell, Collectible.Kind.Orb, itemsRoot);
+                    continue;
+                }
                 switch (ch)
                 {
                     case '.':
@@ -118,6 +145,7 @@ namespace Nexus
                     case 'C':
                         AddCollectible(cell, Collectible.Kind.NexusCore, itemsRoot);
                         CoreCount++;
+                        CoreCells.Add(cell);
                         break;
                     case 'P':
                         PlayerStart = cell;
@@ -126,10 +154,25 @@ namespace Nexus
                         GeneratorCell = cell;
                         break;
                     case 'H':
-                        EnemySpawns.Add(cell);
+                        BugSpawns.Add(new BugSpawn { type = BugType.Chaser, cell = cell });
+                        break;
+                    case 'B':
+                        blockers.Add(cell);
+                        AddCollectible(cell, Collectible.Kind.Orb, itemsRoot);
                         break;
                 }
             }
+            foreach (var pair in routes)
+            {
+                if (pair.Value.Count != 2)
+                {
+                    Debug.LogWarning($"LevelBuilder: Patroller route '{pair.Key}' needs exactly 2 cells (has {pair.Value.Count}).");
+                    continue;
+                }
+                BugSpawns.Add(new BugSpawn { type = BugType.Patroller, cell = pair.Value[0], routeEnd = pair.Value[1] });
+            }
+            foreach (var b in blockers)
+                BugSpawns.Add(new BugSpawn { type = BugType.Blocker, cell = b });
 
             // Buildings between the camera and Pac-Man turn semi-transparent
             wallsRoot.gameObject.AddComponent<BuildingFader>();
@@ -137,7 +180,7 @@ namespace Nexus
             BuildFloor();
             BuildGenerator();
             BuildPlayer();
-            BuildEnemies();
+            BuildBugs();
         }
 
         void BuildWall(Vector2Int cell, Vector3 pos, Transform parent)
@@ -158,6 +201,7 @@ namespace Nexus
             CityVisuals.BuildStreetLines(this, city);
             CityVisuals.BuildSkyline(this, city, skylineBand);
             CityVisuals.ApplyAtmosphere();
+            CityVisuals.AddReflectionProbe(this, city, skylineBand);
         }
 
         void AddCollectible(Vector2Int cell, Collectible.Kind kind, Transform parent)
@@ -175,22 +219,29 @@ namespace Nexus
                 go.transform.position = CellToWorld(cell);
                 if (kind == Collectible.Kind.Orb)
                 {
+                    // Shared material (one for all orbs), bright enough for bloom to make it glow
                     Visuals.Shape(PrimitiveType.Sphere, "Visual", go.transform, new Vector3(0, 0.45f, 0),
-                        Vector3.one * 0.18f, Visuals.GetMaterial(Visuals.Cyan, Visuals.Cyan, 1.5f));
+                        Vector3.one * 0.18f, Visuals.GetMaterial(Visuals.Cyan, Visuals.Cyan, 2.8f));
                 }
                 else
                 {
                     Visuals.Shape(PrimitiveType.Cylinder, "Platform", go.transform, new Vector3(0, 0.03f, 0),
                         new Vector3(0.7f, 0.03f, 0.7f), Visuals.GetMaterial(Visuals.DarkBlue, Visuals.Cyan, 1f));
-                    Visuals.Shape(PrimitiveType.Sphere, "Visual", go.transform, new Vector3(0, 0.6f, 0),
-                        Vector3.one * 0.45f, Visuals.GetMaterial(Visuals.NeonYellow, Visuals.NeonYellow, 3f));
+                    // Own materials per core so each one can pulse (Collectible animates them)
+                    var visual = Visuals.Shape(PrimitiveType.Sphere, "Visual", go.transform, new Vector3(0, 0.6f, 0),
+                        Vector3.one * 0.45f, Visuals.Lit(Visuals.NeonYellow, 0f, 0.5f, Visuals.NeonYellow, 4f));
+                    // Soft yellow aura around the core (rim glow, follows the core's bob)
+                    var halo = Visuals.Shape(PrimitiveType.Sphere, "Halo", visual.transform, Vector3.zero,
+                        Vector3.one * 1.7f, Visuals.Glow(Visuals.NeonYellow, 1.2f, 2f));
+                    halo.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     var light = new GameObject("Glow").AddComponent<Light>();
                     light.transform.SetParent(go.transform, false);
                     light.transform.localPosition = new Vector3(0, 0.8f, 0);
                     light.type = LightType.Point;
                     light.color = Visuals.NeonYellow;
-                    light.range = 2.5f;
-                    light.intensity = 2f;
+                    light.range = 3f;
+                    light.intensity = 2.5f;
+                    light.shadows = LightShadows.None;
                 }
             }
             if (!go.TryGetComponent(out Collectible c)) c = go.AddComponent<Collectible>();
@@ -234,45 +285,56 @@ namespace Nexus
                 go = new GameObject("PacMan");
                 var body = new GameObject("Body").transform;
                 body.SetParent(go.transform, false);
-                PacManModel.Create(body, 0.38f);
+                PacManModel.Create(body, 0.44f);
                 var light = new GameObject("Glow").AddComponent<Light>();
                 light.transform.SetParent(go.transform, false);
                 light.type = LightType.Point;
                 light.color = Visuals.NeonYellow;
-                light.range = 3f;
-                light.intensity = 1.5f;
+                light.range = 3.5f;
+                light.intensity = 2.5f;
             }
+            // Yellow ring on the street so Pac-Man is always easy to find
+            GroundRing.Create(go.transform, Visuals.NeonYellow, 0.55f, 2.2f);
             if (!go.TryGetComponent(out PlayerMovement mover)) mover = go.AddComponent<PlayerMovement>();
             mover.Init(this, PlayerStart);
+            if (!go.TryGetComponent(out PlayerLives _)) go.AddComponent<PlayerLives>();
+            if (!go.TryGetComponent(out EnergyBlast _)) go.AddComponent<EnergyBlast>();
+
+            // BYTE, the hologram companion (its own object, so it can lag behind smoothly)
+            ByteCompanion.Create(go.transform);
         }
 
-        void BuildEnemies()
+        void BuildBugs()
         {
-            var root = new GameObject("Enemies").transform;
+            var root = new GameObject("Bugs").transform;
             root.SetParent(transform, false);
-            for (int i = 0; i < EnemySpawns.Count; i++)
+            foreach (var spawn in BugSpawns)
             {
+                var color = BugAI.ColorFor(spawn.type);
                 GameObject go;
-                if (hunterPrefab != null)
+                if (bugPrefab != null)
                 {
-                    go = Instantiate(hunterPrefab, root);
+                    go = Instantiate(bugPrefab, root);
+                    go.name = spawn.type + "Bug";
                 }
                 else
                 {
-                    go = new GameObject("Hunter");
+                    go = new GameObject(spawn.type + "Bug");
                     go.transform.SetParent(root, false);
                     var body = new GameObject("Body").transform;
                     body.SetParent(go.transform, false);
-                    HunterDroneModel.Create(body, 0.38f);
+                    BugModel.Create(body, 0.38f, color);
                     var light = new GameObject("Glow").AddComponent<Light>();
                     light.transform.SetParent(go.transform, false);
                     light.type = LightType.Point;
-                    light.color = Visuals.CorruptedRed;
-                    light.range = 2.5f;
-                    light.intensity = 1.5f;
+                    light.color = color;
+                    light.range = 4f;
+                    light.intensity = 4f;
                 }
-                if (!go.TryGetComponent(out HunterAI hunter)) hunter = go.AddComponent<HunterAI>();
-                hunter.Init(this, EnemySpawns[i]);
+                // Colored ring on the street, visible even behind buildings
+                GroundRing.Create(go.transform, color, 0.5f, 2.5f);
+                if (!go.TryGetComponent(out BugAI bug)) bug = go.AddComponent<BugAI>();
+                bug.Init(this, spawn.type, spawn.cell, spawn.routeEnd);
             }
         }
     }

@@ -2,6 +2,7 @@
 // _FresnelPower > 0: glow only at the silhouette edges (rim glow on glass).
 // _FresnelPower = 0: flat glow everywhere (light cones, particles, ground glow).
 // _MainTex alpha shapes the glow (e.g. a soft radial gradient for a ground glow).
+// _ZTest = Always draws it on top of everything (markers that must show through buildings).
 // Lives in Resources so Shader.Find keeps working in builds.
 Shader "Nexus/Glow"
 {
@@ -12,6 +13,7 @@ Shader "Nexus/Glow"
         _FresnelPower ("Fresnel Power", Float) = 0
         _MainTex ("Mask", 2D) = "white" {}
         [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("ZTest", Float) = 4
     }
     SubShader
     {
@@ -21,6 +23,7 @@ Shader "Nexus/Glow"
             Blend One One
             ZWrite Off
             Cull [_Cull]
+            ZTest [_ZTest]
 
             HLSLPROGRAM
             #pragma vertex vert

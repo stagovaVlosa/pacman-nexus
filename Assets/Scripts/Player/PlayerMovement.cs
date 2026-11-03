@@ -23,7 +23,7 @@ namespace Nexus
         public bool IsMoving => target != cell;
 
         LevelBuilder level;
-        Vector2Int cell, target, dir, queued;
+        Vector2Int cell, target, dir, queued, start;
         Transform body;
 
         void Awake()
@@ -34,16 +34,25 @@ namespace Nexus
         public void Init(LevelBuilder builder, Vector2Int start)
         {
             level = builder;
+            this.start = start;
             cell = target = start;
             dir = queued = Vector2Int.zero;
             transform.position = level.CellToWorld(start, floatHeight);
             body = transform.Find("Body");
         }
 
+        /// <summary>Back to the start cell ('P'), standing still (after losing a life).</summary>
+        public void Respawn()
+        {
+            cell = target = start;
+            dir = queued = Vector2Int.zero;
+            transform.position = level.CellToWorld(start, floatHeight);
+        }
+
         void Update()
         {
             if (level == null) return;
-            if (GameManager.Instance != null && GameManager.Instance.LevelComplete) return;
+            if (GameManager.Instance != null && !GameManager.Instance.IsPlaying) return;
 
             ReadInput();
 

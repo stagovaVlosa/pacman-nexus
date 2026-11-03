@@ -1,18 +1,25 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 namespace Nexus
 {
     /// <summary>
-    /// Exit generator. Red while locked, cyan after all Nexus Cores are collected.
-    /// Player stands on it and presses E to complete the level.
+    /// Exit generator on the 'G' cell. Red and inactive until Pac-Man reaches it with all Nexus Cores.
+    /// - Reached with all cores: turns cyan, spins fast and the level is complete.
+    /// - Reached with fewer cores: only a short on-screen message, nothing else happens.
     /// </summary>
     public class Generator : MonoBehaviour
     {
         public Vector2Int cell;
         public Light glow;
+        public float messageTime = 2f;
+        [Header("Light (off until activated)")]
+        public float activeIntensity = 6f;
+        public float activeRange = 7f;
+        public float lightUpTime = 0.8f;
 
         bool active;
+        bool playerWasHere;
+        float lightUp;
 
         void Start()
         {
@@ -22,23 +29,45 @@ namespace Nexus
                 glow.transform.SetParent(transform, false);
                 glow.transform.localPosition = new Vector3(0, 1.2f, 0);
                 glow.type = LightType.Point;
-                glow.range = 4f;
-                glow.intensity = 3f;
+                glow.shadows = LightShadows.None;
             }
-            glow.color = Visuals.CorruptedRed;
+            // Dark while inactive: only the red emissive parts show it is there
+            glow.color = Visuals.Cyan;
+            glow.range = activeRange;
+            glow.intensity = 0f;
+            glow.enabled = false;
         }
 
         void Update()
         {
-            var gm = GameManager.Instance;
-            if (gm == null) return;
-
-            if (!active && gm.AllCoresCollected) Activate();
-
             transform.Rotate(0f, (active ? 120f : 20f) * Time.deltaTime, 0f);
 
-            if (active && PlayerIsHere && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
-                gm.CompleteLevel();
+            // Light switching on: flickers a few times, then settles at full brightness
+            if (active && lightUp < 1f)
+            {
+                lightUp = Mathf.Min(1f, lightUp + Time.deltaTime / lightUpTime);
+                bool flickerOff = lightUp < 0.6f && Mathf.Repeat(lightUp * 10f, 1f) < 0.4f;
+                glow.intensity = flickerOff ? 0f : activeIntensity * lightUp;
+            }
+
+            var gm = GameManager.Instance;
+            if (gm == null || !gm.IsPlaying) return;
+
+            // React once each time Pac-Man arrives on the cell (not every frame while standing on it)
+            bool here = PlayerIsHere;
+            if (here && !playerWasHere)
+            {
+                if (gm.AllCoresCollected)
+                {
+                    Activate();
+                    gm.CompleteLevel();
+                }
+                else if (GameHUD.Instance != null)
+                {
+                    GameHUD.Instance.ShowMessage($"Collect all {gm.CoresRequired} Nexus Cores", messageTime);
+                }
+            }
+            playerWasHere = here;
         }
 
         public bool PlayerIsHere =>
@@ -49,7 +78,8 @@ namespace Nexus
         void Activate()
         {
             active = true;
-            glow.color = Visuals.Cyan;
+            lightUp = 0f;
+            glow.enabled = true;
             foreach (var part in new[] { "Core", "Beam" })
             {
                 var t = transform.Find(part);

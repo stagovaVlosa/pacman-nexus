@@ -84,8 +84,8 @@ namespace Nexus
             public Material rubber = Visuals.Lit(Visuals.Hex("#12161F"), 0.2f, 0.4f);
             public Material cyan = Visuals.Lit(Visuals.Cyan, 0f, 0.6f, Visuals.Cyan, 2f);
             public Material amber = Visuals.Lit(Visuals.Hex("#FFA31A"), 0f, 0.6f, Amber, 1.6f);
-            public Material glass = Visuals.Glass(GlassYellow, 0.28f, Visuals.Hex("#3A2A00"));
-            public Material rim = Visuals.Glow(Visuals.Hex("#FFB000"), 2f, 2.6f);
+            public Material glass = Visuals.Glass(GlassYellow, 0.34f, Visuals.Hex("#7A5600"));
+            public Material rim = Visuals.Glow(Visuals.Hex("#FFB000"), 3.2f, 2.2f);
         }
 
         // ---------- shell halves ----------

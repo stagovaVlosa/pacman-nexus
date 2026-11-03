@@ -4,15 +4,17 @@ using UnityEngine;
 namespace Nexus
 {
     /// <summary>
-    /// Makes buildings semi-transparent while they stand between the camera and Pac-Man,
-    /// so Pac-Man is never hidden. Sits on the "Walls" root; every direct child is one building.
+    /// Makes buildings semi-transparent (~20%) while they stand between the camera and Pac-Man,
+    /// the street ahead of him (up to 'aheadCells' in his movement direction) or a Bug,
+    /// so the important things are never hidden. Sits on the "Walls" root; every direct child is one building.
     /// Visual only: uses bounding boxes and rays (no physics), the grid is not touched.
     /// </summary>
     public class BuildingFader : MonoBehaviour
     {
-        public float fadedAlpha = 0.25f;
+        public float fadedAlpha = 0.2f;
         public float fadeSpeed = 5f;      // alpha per second
-        public float checkRadius = 3f;    // only buildings this close to Pac-Man (XZ) are tested
+        public float checkRadius = 10f;   // only buildings this close to Pac-Man (XZ) are tested
+        public int aheadCells = 6;
 
         class Building
         {
@@ -28,6 +30,8 @@ namespace Nexus
         static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         MaterialPropertyBlock block;
         Camera cam;
+        readonly List<Vector3> points = new List<Vector3>();
+        Vector2Int lastDir;
 
         void Start()
         {
@@ -52,7 +56,8 @@ namespace Nexus
 
         static Material TransparentCopy(Material src)
         {
-            if (src == null) return null;
+            // Only URP Lit materials get a transparent copy; other shaders stay as they are
+            if (src == null || src.shader == null || !src.shader.name.EndsWith("/Lit")) return src;
             if (transparentCopies.TryGetValue(src, out var copy) && copy != null) return copy;
             copy = new Material(src) { name = src.name + " (Faded)" };
             Visuals.MakeTransparent(copy);
@@ -60,19 +65,44 @@ namespace Nexus
             return copy;
         }
 
-        void LateUpdate()
+        void LateUpdate() => Refresh(Time.deltaTime);
+
+        /// <summary>Checks which buildings hide Pac-Man and moves their alpha by up to fadeSpeed * dt.</summary>
+        public void Refresh(float dt)
         {
             if (cam == null) cam = Camera.main;
             var player = PlayerMovement.Instance;
             if (cam == null || player == null) return;
 
-            // Test several points on Pac-Man (center, top, bottom with the hover engine, left, right)
+            // Several points on Pac-Man (center, top, bottom with the hover engine, left, right)
             Vector3 camPos = cam.transform.position;
             Vector3 target = player.transform.position;
-            Vector3 side = cam.transform.right * 0.4f;
-            var points = new[] { target, target + Vector3.up * 0.4f, target + Vector3.down * 0.45f, target + side, target - side };
+            Vector3 side = cam.transform.right * 0.45f;
+            points.Clear();
+            points.Add(target);
+            points.Add(target + Vector3.up * 0.45f);
+            points.Add(target + Vector3.down * 0.5f);
+            points.Add(target + side);
+            points.Add(target - side);
 
-            float dt = Time.deltaTime;
+            // The street ahead, cell by cell until a wall (keeps the last direction while standing still)
+            var level = LevelBuilder.Instance;
+            if (player.Direction != Vector2Int.zero) lastDir = player.Direction;
+            if (level != null && lastDir != Vector2Int.zero)
+            {
+                var c = player.CurrentCell;
+                for (int i = 0; i < aheadCells; i++)
+                {
+                    c += lastDir;
+                    if (!level.IsWalkable(c)) break;
+                    points.Add(level.CellToWorld(c, 0.15f));
+                    points.Add(level.CellToWorld(c, 0.6f));
+                }
+            }
+
+            // Bugs
+            foreach (var h in BugAI.All) points.Add(h.transform.position);
+
             foreach (var b in buildings)
             {
                 var c = b.bounds.center;
@@ -85,7 +115,7 @@ namespace Nexus
             }
         }
 
-        static bool Blocks(Bounds bounds, Vector3 camPos, Vector3[] points)
+        static bool Blocks(Bounds bounds, Vector3 camPos, List<Vector3> points)
         {
             foreach (var p in points)
             {
@@ -117,7 +147,7 @@ namespace Nexus
                 var mats = b.faded[i];
                 for (int m = 0; m < mats.Length; m++)
                 {
-                    if (mats[m] == null) continue;
+                    if (mats[m] == null || mats[m] == b.opaque[i][m]) continue;
                     var col = mats[m].GetColor(BaseColorId);
                     col.a = b.alpha;
                     block.Clear();
