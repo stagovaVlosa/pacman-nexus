@@ -7,24 +7,62 @@ using UnityEngine.Rendering.Universal;
 namespace Nexus.EditorTools
 {
     /// <summary>
-    /// Menu: Nexus > Create Level 1 Scene
-    /// Builds a ready-to-play scene so you only have to press Play.
+    /// Menu: Nexus > Create Level 1 Scene / Create Level 2 Scene
+    /// Builds a ready-to-play scene so you only have to press Play, links the levels
+    /// (Level 1 -> Level 2) and puts both scenes in the Build Settings.
     /// </summary>
     public static class NexusSceneSetup
     {
-        const string LayoutPath = "Assets/Levels/Level1_NeonDistrict.txt";
-        const string ScenePath = "Assets/Scenes/Level1_NeonDistrict.unity";
+        const string Level1Layout = "Assets/Levels/Level1_NeonDistrict.txt";
+        const string Level1Scene = "Assets/Scenes/Level1_NeonDistrict.unity";
+        const string Level2Layout = "Assets/Levels/Level2_SkylineZone.txt";
+        const string Level2Scene = "Assets/Scenes/Level2_SkylineZone.unity";
         const string VolumePath = "Assets/Settings/NexusVolumeProfile.asset";
 
         [MenuItem("Nexus/Create Level 1 Scene")]
-        public static void CreateLevel1()
+        public static void CreateLevel1() =>
+            CreateLevel(Level1Layout, Level1Scene, "Neon District", 1, LevelTheme.NeonDistrict, Level2Scene);
+
+        [MenuItem("Nexus/Create Level 2 Scene")]
+        public static void CreateLevel2()
+        {
+            CreateLevel(Level2Layout, Level2Scene, "Skyline Zone", 2, LevelTheme.SkylineZone, "");
+            LinkLevel1ToLevel2();
+        }
+
+        /// <summary>Sets Level 1's next scene to Level 2 (without rebuilding Level 1) and updates the Build Settings.</summary>
+        [MenuItem("Nexus/Link Level 1 -> Level 2")]
+        public static void LinkLevel1ToLevel2()
+        {
+            var current = EditorSceneManager.GetActiveScene().path;
+            var scene = EditorSceneManager.OpenScene(Level1Scene, OpenSceneMode.Single);
+            var lb = Object.FindFirstObjectByType<LevelBuilder>();
+            if (lb != null)
+            {
+                lb.nextScenePath = Level2Scene;
+                lb.levelName = "Neon District";
+                lb.levelNumber = 1;
+                lb.theme = LevelTheme.NeonDistrict;
+                EditorUtility.SetDirty(lb);
+                EditorSceneManager.SaveScene(scene);
+            }
+            EditorBuildSettings.scenes = new[]
+            {
+                new EditorBuildSettingsScene(Level1Scene, true),
+                new EditorBuildSettingsScene(Level2Scene, true)
+            };
+            if (!string.IsNullOrEmpty(current) && current != Level1Scene) EditorSceneManager.OpenScene(current, OpenSceneMode.Single);
+            Debug.Log("Nexus: Level 1 now continues to Level 2 (ENTER after the Generator). Build Settings updated.");
+        }
+
+        static void CreateLevel(string layoutPath, string scenePath, string levelName, int number, LevelTheme theme, string next)
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
 
-            var layout = AssetDatabase.LoadAssetAtPath<TextAsset>(LayoutPath);
+            var layout = AssetDatabase.LoadAssetAtPath<TextAsset>(layoutPath);
             if (layout == null)
             {
-                EditorUtility.DisplayDialog("Nexus", "Layout not found: " + LayoutPath, "OK");
+                EditorUtility.DisplayDialog("Nexus", "Layout not found: " + layoutPath, "OK");
                 return;
             }
 
@@ -73,11 +111,15 @@ namespace Nexus.EditorTools
             new GameObject("HUD").AddComponent<GameHUD>();
             var level = new GameObject("Level").AddComponent<LevelBuilder>();
             level.layout = layout;
+            level.levelName = levelName;
+            level.levelNumber = number;
+            level.theme = theme;
+            level.nextScenePath = next;
 
-            EditorSceneManager.SaveScene(scene, ScenePath);
+            EditorSceneManager.SaveScene(scene, scenePath);
             AssetDatabase.SaveAssets();
             Selection.activeGameObject = level.gameObject;
-            Debug.Log("Nexus: Level 1 scene created at " + ScenePath + ". Press Play!");
+            Debug.Log($"Nexus: Level {number} scene created at {scenePath}. Press Play!");
         }
     }
 }

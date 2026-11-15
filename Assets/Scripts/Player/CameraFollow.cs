@@ -11,22 +11,22 @@ namespace Nexus
     public class CameraFollow : MonoBehaviour
     {
         public Transform target;
-        [Range(30f, 89f)] public float pitch = 63f;   // degrees down from horizontal
-        public float distance = 11f;
-        public float fieldOfView = 55f;
+        [Range(30f, 89f)] public float viewPitch = 66f;   // degrees down from horizontal
+        public float viewDistance = 9.5f;
+        public float viewFov = 50f;
         public float smoothTime = 0.18f;
         [Tooltip("How far (world units) the camera leads in the movement direction")]
-        public float lookAhead = 2f;
+        public float leadDistance = 1.2f;
         public float lookAheadTime = 0.45f;
 
         Vector3 velocity, lead, leadVelocity;
 
-        public Vector3 Offset => Quaternion.Euler(pitch, 0f, 0f) * new Vector3(0f, 0f, -distance);
+        public Vector3 Offset => Quaternion.Euler(viewPitch, 0f, 0f) * new Vector3(0f, 0f, -viewDistance);
 
         void Start()
         {
-            transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
-            if (TryGetComponent(out Camera cam)) cam.fieldOfView = fieldOfView;
+            transform.rotation = Quaternion.Euler(viewPitch, 0f, 0f);
+            if (TryGetComponent(out Camera cam)) cam.fieldOfView = viewFov;
             if (target == null && PlayerMovement.Instance != null) target = PlayerMovement.Instance.transform;
             if (target != null) transform.position = target.position + Offset;
         }
@@ -44,7 +44,7 @@ namespace Nexus
             if (player != null && player.IsMoving)
             {
                 var d = player.Direction;
-                var wantLead = new Vector3(d.x, 0f, -d.y) * lookAhead;
+                var wantLead = new Vector3(d.x, 0f, -d.y) * leadDistance;
                 lead = Vector3.SmoothDamp(lead, wantLead, ref leadVelocity, lookAheadTime);
             }
 

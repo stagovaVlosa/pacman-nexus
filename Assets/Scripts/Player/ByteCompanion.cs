@@ -13,16 +13,16 @@ namespace Nexus
     {
         public Transform target;
         [Tooltip("Distance behind Pac-Man (opposite his facing direction)")]
-        public float behind = 0.75f;
+        public float behind = 0.7f;
         [Tooltip("Sideways offset so BYTE does not hide Pac-Man")]
-        public float side = 0.35f;
+        public float side = 0.5f;
         [Tooltip("Height above Pac-Man")]
-        public float above = 0.6f;
+        public float above = 0.75f;
         public float smoothTime = 0.3f;
         public float lineTime = 4f;
 
         Vector3 velocity;
-        Transform model, ring;
+        Transform model, ring, eye;
         Material coreMat, ringMat, shellMat;
         Light glow;
         float t, seed;
@@ -48,19 +48,39 @@ namespace Nexus
             model = new GameObject("Model").transform;
             model.SetParent(transform, false);
 
-            // Transparent hologram shell with a bright core inside
-            shellMat = Visuals.Glass(holo, 0.25f, holo * 0.6f);
-            Visuals.Shape(PrimitiveType.Sphere, "Shell", model, Vector3.zero, Vector3.one * 0.28f, shellMat);
-            coreMat = Visuals.Glow(holo, 2.5f, 0f);
-            Visuals.Shape(PrimitiveType.Sphere, "Core", model, Vector3.zero, Vector3.one * 0.11f, coreMat);
-            // Visor bar on the front and a small antenna
-            Visuals.Shape(PrimitiveType.Cube, "Visor", model, new Vector3(0f, 0.03f, 0.12f), new Vector3(0.15f, 0.035f, 0.04f), coreMat);
-            Visuals.Shape(PrimitiveType.Cylinder, "Antenna", model, new Vector3(0f, 0.19f, 0f), new Vector3(0.015f, 0.05f, 0.015f), coreMat);
-            Visuals.Shape(PrimitiveType.Sphere, "AntennaTip", model, new Vector3(0f, 0.25f, 0f), Vector3.one * 0.045f, coreMat);
+            // GDD 3.2: small rounded-rectangle hologram with ONE big digital eye.
+            // Semi-transparent cyan body, dark screen face, glowing frame, big eye, antenna, hover ring.
+            shellMat = Visuals.Glass(holo, 0.42f, holo * 0.7f);
+            Visuals.Shape(PrimitiveType.Cube, "Body", model, Vector3.zero, new Vector3(0.46f, 0.34f, 0.28f), shellMat);
+            Visuals.Shape(PrimitiveType.Sphere, "EarL", model, new Vector3(-0.25f, 0f, 0f), new Vector3(0.08f, 0.16f, 0.16f), shellMat);
+            Visuals.Shape(PrimitiveType.Sphere, "EarR", model, new Vector3(0.25f, 0f, 0f), new Vector3(0.08f, 0.16f, 0.16f), shellMat);
 
-            // Thin spinning ring around the body
+            var screen = Visuals.Lit(Visuals.Hex("#031820"), 0f, 0.9f, Visuals.Hex("#00313D"), 1f);
+            Visuals.Shape(PrimitiveType.Cube, "Screen", model, new Vector3(0f, 0f, 0.142f), new Vector3(0.38f, 0.26f, 0.01f), screen);
+
+            coreMat = Visuals.Glow(holo, 2.5f, 0f);
+            // Glowing frame around the screen
+            Visuals.Shape(PrimitiveType.Cube, "FrameTop", model, new Vector3(0f, 0.14f, 0.15f), new Vector3(0.40f, 0.018f, 0.012f), coreMat);
+            Visuals.Shape(PrimitiveType.Cube, "FrameBottom", model, new Vector3(0f, -0.14f, 0.15f), new Vector3(0.40f, 0.018f, 0.012f), coreMat);
+            Visuals.Shape(PrimitiveType.Cube, "FrameLeft", model, new Vector3(-0.2f, 0f, 0.15f), new Vector3(0.018f, 0.28f, 0.012f), coreMat);
+            Visuals.Shape(PrimitiveType.Cube, "FrameRight", model, new Vector3(0.2f, 0f, 0.15f), new Vector3(0.018f, 0.28f, 0.012f), coreMat);
+
+            // One big digital eye (a disc facing forward) with a white pupil
+            eye = new GameObject("Eye").transform;
+            eye.SetParent(model, false);
+            eye.localPosition = new Vector3(0f, 0.01f, 0.152f);
+            var iris = Visuals.Shape(PrimitiveType.Cylinder, "Iris", eye, Vector3.zero, new Vector3(0.15f, 0.004f, 0.15f), coreMat);
+            iris.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            var pupil = Visuals.Shape(PrimitiveType.Cylinder, "Pupil", eye, new Vector3(0f, 0f, 0.003f), new Vector3(0.06f, 0.004f, 0.06f),
+                Visuals.Glow(Color.white, 2.5f, 0f));
+            pupil.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            Visuals.Shape(PrimitiveType.Cylinder, "Antenna", model, new Vector3(0.08f, 0.24f, 0f), new Vector3(0.015f, 0.07f, 0.015f), coreMat);
+            Visuals.Shape(PrimitiveType.Sphere, "AntennaTip", model, new Vector3(0.08f, 0.32f, 0f), Vector3.one * 0.05f, coreMat);
+
+            // Hover ring under the body
             var mb = new MeshBuilder();
-            mb.Tube(MeshBuilder.Circle(0.21f, 48, Vector3.zero, MeshBuilder.Flat), 0.01f, 6, true);
+            mb.Tube(MeshBuilder.Circle(0.2f, 48, new Vector3(0f, -0.26f, 0f), MeshBuilder.Flat), 0.012f, 6, true);
             ringMat = Visuals.Glow(holo, 2f, 0f);
             ring = Visuals.MeshPart("Ring", model, mb.ToMesh("Byte_Ring"), ringMat).transform;
 
@@ -70,8 +90,8 @@ namespace Nexus
             glow.transform.SetParent(transform, false);
             glow.type = LightType.Point;
             glow.color = holo;
-            glow.range = 1.6f;
-            glow.intensity = 1.2f;
+            glow.range = 2.2f;
+            glow.intensity = 1.5f;
             glow.shadows = LightShadows.None;
         }
 
@@ -93,7 +113,7 @@ namespace Nexus
         }
 
         void SayReturn() => Say("Return to the Generator", lineTime + 1f);
-        void SayComplete() => Say("Generator online. Neon District restored!", float.PositiveInfinity);
+        void SayComplete() => Say($"Generator online. {GameManager.Instance.levelName} restored!", float.PositiveInfinity);
 
         /// <summary>Shows a line in the dialogue panel for 'seconds' (Infinity = until the scene ends).</summary>
         public void Say(string text, float seconds)
@@ -133,11 +153,19 @@ namespace Nexus
 
             // Gentle bob, face the same way as Pac-Man, spin the ring
             model.localPosition = new Vector3(0f, Mathf.Sin(t * 2.2f) * 0.05f, 0f);
-            var look = target.forward;
-            look.y = 0f;
-            if (look.sqrMagnitude > 0.01f)
-                model.rotation = Quaternion.Slerp(model.rotation, Quaternion.LookRotation(look), dt * 6f);
-            ring.localRotation = Quaternion.Euler(12f, t * 140f, 0f);
+            // Face the camera so the player always sees BYTE's eye
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                var look = cam.transform.position - transform.position;
+                look.y *= 0.4f;
+                if (look.sqrMagnitude > 0.01f)
+                    model.rotation = Quaternion.Slerp(model.rotation, Quaternion.LookRotation(look), dt * 6f);
+            }
+            ring.localRotation = Quaternion.Euler(0f, t * 140f, 0f);
+            // Blink every few seconds
+            float blink = Mathf.Repeat(t + seed, 3.7f) < 0.12f ? 0.15f : 1f;
+            eye.localScale = new Vector3(1f, blink, 1f);
 
             // Hologram flicker; brighter while talking
             float f = 0.8f + Mathf.PerlinNoise(t * 7f, seed) * 0.3f;
@@ -150,7 +178,7 @@ namespace Nexus
 
         void OnGUI()
         {
-            if (!Talking) return;
+            if (!Talking || IntroSequence.Active) return;
             if (nameStyle == null)
             {
                 nameStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };

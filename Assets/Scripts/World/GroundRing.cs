@@ -42,6 +42,13 @@ namespace Nexus
             return ring;
         }
 
+        /// <summary>Changes the ring colour (Bugs turn blue in Devour Mode).</summary>
+        public void SetColor(Color c)
+        {
+            ringMat.SetColor("_Color", c);
+            spotMat.SetColor("_Color", c);
+        }
+
         void LateUpdate()
         {
             var p = transform.parent != null ? transform.parent.position : transform.position;

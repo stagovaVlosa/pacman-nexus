@@ -33,15 +33,18 @@ namespace Nexus
         public bool LevelComplete { get; private set; }
         public int Lives { get; private set; }
         public bool GameOver { get; private set; }
-        /// <summary>False after the level is complete or the game is over: movement and enemies stop.</summary>
-        public bool IsPlaying => !LevelComplete && !GameOver;
+        /// <summary>False after the level is complete, the game is over or the game is paused: movement and enemies stop.</summary>
+        public bool IsPlaying => !LevelComplete && !GameOver && !IntroSequence.Active && !PauseMenu.Paused;
 
         public event Action OnAllCoresCollected;
         public event Action OnLevelComplete;
         public event Action OnLifeLost;
         public event Action OnGameOver;
 
-        float gameOverTime;
+        float gameOverTime, completeTime;
+
+        /// <summary>True when this level has a next region to load (LevelBuilder.nextScenePath).</summary>
+        public bool HasNextLevel => LevelBuilder.Instance != null && !string.IsNullOrEmpty(LevelBuilder.Instance.nextScenePath);
 
         void Awake()
         {
@@ -55,6 +58,10 @@ namespace Nexus
             var kb = Keyboard.current;
             if (GameOver && kb != null && kb.spaceKey.wasPressedThisFrame && Time.unscaledTime - gameOverTime > 0.5f)
                 Restart();
+            // Level complete: ENTER loads the next region
+            if (LevelComplete && HasNextLevel && kb != null && Time.unscaledTime - completeTime > 1.5f
+                && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame))
+                LoadScene(LevelBuilder.Instance.nextScenePath);
         }
 
         /// <summary>Removes one life (collected Nexus Cores stay collected). At 0 lives the game is over.</summary>
@@ -74,19 +81,27 @@ namespace Nexus
         /// <summary>Reloads the current scene (new game).</summary>
         public void Restart()
         {
+            IntroSequence.SkipNextLevelCard = true;   // retrying a level does not show its title card again
+            LoadScene(SceneManager.GetActiveScene().path);
+        }
+
+        static void LoadScene(string path)
+        {
 #if UNITY_EDITOR
             // Works in Play mode even if the scene is not in the Build Settings
-            UnityEditor.SceneManagement.EditorSceneManager.LoadSceneInPlayMode(
-                SceneManager.GetActiveScene().path, new LoadSceneParameters(LoadSceneMode.Single));
+            UnityEditor.SceneManagement.EditorSceneManager.LoadSceneInPlayMode(path, new LoadSceneParameters(LoadSceneMode.Single));
 #else
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+            SceneManager.LoadScene(path);
 #endif
         }
 
         void Start()
         {
-            if (LevelBuilder.Instance != null && LevelBuilder.Instance.CoreCount > 0)
-                CoresRequired = LevelBuilder.Instance.CoreCount;
+            if (LevelBuilder.Instance != null)
+            {
+                levelName = LevelBuilder.Instance.levelName;
+                if (LevelBuilder.Instance.CoreCount > 0) CoresRequired = LevelBuilder.Instance.CoreCount;
+            }
         }
 
         public void CollectOrb()
@@ -102,6 +117,9 @@ namespace Nexus
             if (CoresCollected == CoresRequired) OnAllCoresCollected?.Invoke();
         }
 
+        /// <summary>Extra points (eating a Bug in Devour Mode, picking up a power-up).</summary>
+        public void AddScore(int points) => Score += points;
+
         public bool UseEnergy(float amount)
         {
             if (Energy < amount) return false;
@@ -113,6 +131,7 @@ namespace Nexus
         {
             if (LevelComplete || !AllCoresCollected) return;
             LevelComplete = true;
+            completeTime = Time.unscaledTime;
             OnLevelComplete?.Invoke();
         }
     }

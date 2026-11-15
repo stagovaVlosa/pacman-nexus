@@ -10,11 +10,21 @@ namespace Nexus
     ///   P  player start   G  generator        -  enemy door     (space) empty floor
     ///   Bugs (an orb is placed under B and the digits too):
     ///   H  Chaser spawn   B  Blocker post     1-9  Patroller route: two cells with the same digit
+    ///   S  Sentinel (guards the nearest Nexus Core, Level 2+)
+    ///   Power-ups: *  Devour Mode   &gt;  Speed Burst   +  Energy Shield   %  Magnet
+    ///   (a layout without any power-up gets a default set: 4 Devour near the corners, 2 Speed, 2 Shield, 1 Magnet)
     /// Row 0 of the text is the far (top) side of the maze.
     /// </summary>
     public class LevelBuilder : MonoBehaviour
     {
         public static LevelBuilder Instance { get; private set; }
+
+        [Header("Level")]
+        public string levelName = "Neon District";
+        public int levelNumber = 1;
+        public LevelTheme theme = LevelTheme.NeonDistrict;
+        [Tooltip("Scene loaded after this level (empty = last level in this build)")]
+        public string nextScenePath = "";
 
         [Header("Layout")]
         public TextAsset layout;
@@ -51,6 +61,9 @@ namespace Nexus
 
         bool[,] walls;
         readonly Dictionary<Vector2Int, Collectible> collectibles = new Dictionary<Vector2Int, Collectible>();
+        readonly Dictionary<Vector2Int, PowerUp> powerUps = new Dictionary<Vector2Int, PowerUp>();
+        /// <summary>Power-ups still lying in the level (minimap).</summary>
+        public IReadOnlyDictionary<Vector2Int, PowerUp> PowerUps => powerUps;
 
         void Awake()
         {
@@ -60,7 +73,11 @@ namespace Nexus
                 Debug.LogError("LevelBuilder: no layout TextAsset assigned.");
                 return;
             }
+            GameHUD.Accent = CityVisuals.AccentFor(theme);
             Build(layout.text);
+            // Level 2+: title card with BYTE's story lines (Level 1 has the full intro cinematic)
+            if (levelNumber > 1) IntroSequence.StartLevelCard(this);
+            else IntroSequence.SkipNextLevelCard = false;
         }
 
         // ---------- Grid helpers (used by player, enemies, minimap) ----------
@@ -87,6 +104,22 @@ namespace Nexus
                 collectibles.Remove(cell);
                 item.Collect();
             }
+            if (powerUps.TryGetValue(cell, out var power))
+            {
+                powerUps.Remove(cell);
+                if (power != null) power.Collect();
+            }
+        }
+
+        /// <summary>Magnet: every Energy Orb within 'radius' steps of 'center' flies to 'target' and is collected.</summary>
+        public void PullOrbs(Vector2Int center, int radius, Transform target)
+        {
+            foreach (var c in GridPath.CellsWithin(this, center, radius))
+            {
+                if (!collectibles.TryGetValue(c, out var item) || item == null || item.kind != Collectible.Kind.Orb) continue;
+                collectibles.Remove(c);
+                item.FlyTo(target);
+            }
         }
 
         // ---------- Building ----------
@@ -105,7 +138,7 @@ namespace Nexus
             var wallsRoot = new GameObject("Walls").transform;
             var itemsRoot = new GameObject("Collectibles").transform;
             wallsRoot.SetParent(transform, false);
-            CityVisuals.BeginCity(transform);
+            CityVisuals.BeginCity(transform, theme);
             itemsRoot.SetParent(transform, false);
 
             // Pass 1: read the grid (walls must be known before buildings look at their neighbours)
@@ -127,6 +160,7 @@ namespace Nexus
                     if (walls[x, y]) BuildWall(new Vector2Int(x, y), CellToWorld(new Vector2Int(x, y)), wallsRoot);
 
             var blockers = new List<Vector2Int>();
+            var sentinels = new List<Vector2Int>();
             var routes = new SortedDictionary<char, List<Vector2Int>>();
             foreach (var (cell, ch) in walkableItems)
             {
@@ -160,6 +194,10 @@ namespace Nexus
                         blockers.Add(cell);
                         AddCollectible(cell, Collectible.Kind.Orb, itemsRoot);
                         break;
+                    case 'S':
+                        sentinels.Add(cell);
+                        AddCollectible(cell, Collectible.Kind.Orb, itemsRoot);
+                        break;
                 }
             }
             foreach (var pair in routes)
@@ -173,14 +211,19 @@ namespace Nexus
             }
             foreach (var b in blockers)
                 BugSpawns.Add(new BugSpawn { type = BugType.Blocker, cell = b });
+            foreach (var s in sentinels)
+                BugSpawns.Add(new BugSpawn { type = BugType.Sentinel, cell = s });
 
-            // Buildings between the camera and Pac-Man turn semi-transparent
+            // Buildings between the camera and Pac-Man / the Bugs turn semi-transparent
             wallsRoot.gameObject.AddComponent<BuildingFader>();
 
-            BuildFloor();
+            var city = BuildFloor();
             BuildGenerator();
+            PlacePowerUps(walkableItems, itemsRoot);
             BuildPlayer();
             BuildBugs();
+            // FPS: merge the skyline band, static-batch the maze buildings
+            CityVisuals.Optimize(wallsRoot, city, cellSize);
         }
 
         void BuildWall(Vector2Int cell, Vector3 pos, Transform parent)
@@ -193,7 +236,7 @@ namespace Nexus
             CityVisuals.BuildBuilding(this, cell, parent, false);
         }
 
-        void BuildFloor()
+        Transform BuildFloor()
         {
             var city = new GameObject("City").transform;
             city.SetParent(transform, false);
@@ -202,6 +245,7 @@ namespace Nexus
             CityVisuals.BuildSkyline(this, city, skylineBand);
             CityVisuals.ApplyAtmosphere();
             CityVisuals.AddReflectionProbe(this, city, skylineBand);
+            return city;
         }
 
         void AddCollectible(Vector2Int cell, Collectible.Kind kind, Transform parent)
@@ -249,6 +293,87 @@ namespace Nexus
             collectibles[cell] = c;
         }
 
+        // ---------- Power-ups ----------
+
+        static PowerUpType? PowerFor(char ch)
+        {
+            switch (ch)
+            {
+                case '*': return PowerUpType.Devour;
+                case '>': return PowerUpType.SpeedBurst;
+                case '+': return PowerUpType.Shield;
+                case '%': return PowerUpType.Magnet;
+                default: return null;
+            }
+        }
+
+        /// <summary>
+        /// Power-ups from the layout characters; if the layout has none, a default set on street crossings:
+        /// Devour near the four corners (like the classic power pellets), Speed top/bottom, Shield left/right,
+        /// Magnet a bit above the centre. Never on the start, the Generator, a Core, a Bug spawn or next to a Core.
+        /// </summary>
+        void PlacePowerUps(List<(Vector2Int cell, char ch)> items, Transform parent)
+        {
+            var placed = new List<(Vector2Int, PowerUpType)>();
+            foreach (var (cell, ch) in items)
+            {
+                var p = PowerFor(ch);
+                if (p.HasValue) placed.Add((cell, p.Value));
+            }
+
+            if (placed.Count == 0)
+            {
+                var blocked = new HashSet<Vector2Int> { PlayerStart, GeneratorCell };
+                foreach (var c in CoreCells) { blocked.Add(c); foreach (var d in GridPath.Dirs) blocked.Add(c + d); }
+                foreach (var b in BugSpawns) { blocked.Add(b.cell); blocked.Add(b.routeEnd); }
+                var crossings = new List<Vector2Int>();
+                for (int y = 0; y < Height; y++)
+                    for (int x = 0; x < Width; x++)
+                    {
+                        var c = new Vector2Int(x, y);
+                        if (!IsWalkable(c) || blocked.Contains(c)) continue;
+                        bool h = IsWalkable(c + Vector2Int.left) || IsWalkable(c + Vector2Int.right);
+                        bool v = IsWalkable(c + Vector2Int.up) || IsWalkable(c + Vector2Int.down);
+                        if (h && v) crossings.Add(c);
+                    }
+                var wanted = new (float, float, PowerUpType)[]
+                {
+                    (0.18f, 0.18f, PowerUpType.Devour), (0.82f, 0.18f, PowerUpType.Devour),
+                    (0.18f, 0.80f, PowerUpType.Devour), (0.82f, 0.80f, PowerUpType.Devour),
+                    (0.50f, 0.12f, PowerUpType.SpeedBurst), (0.35f, 0.92f, PowerUpType.SpeedBurst),
+                    (0.10f, 0.50f, PowerUpType.Shield), (0.90f, 0.50f, PowerUpType.Shield),
+                    (0.62f, 0.35f, PowerUpType.Magnet),
+                };
+                foreach (var (fx, fy, type) in wanted)
+                {
+                    var goal = new Vector2((Width - 1) * fx, (Height - 1) * fy);
+                    Vector2Int best = new Vector2Int(-1, -1);
+                    float bestD = float.MaxValue;
+                    foreach (var c in crossings)
+                    {
+                        bool tooClose = false;
+                        foreach (var (pc, _) in placed)
+                            if (Mathf.Abs(pc.x - c.x) + Mathf.Abs(pc.y - c.y) < 5) { tooClose = true; break; }
+                        if (tooClose) continue;
+                        float d = (new Vector2(c.x, c.y) - goal).sqrMagnitude;
+                        if (d < bestD) { bestD = d; best = c; }
+                    }
+                    if (best.x >= 0) placed.Add((best, type));
+                }
+            }
+
+            foreach (var (cell, type) in placed)
+            {
+                // The power-up replaces the orb on its cell
+                if (collectibles.TryGetValue(cell, out var orb))
+                {
+                    collectibles.Remove(cell);
+                    if (orb != null) { if (Application.isPlaying) Destroy(orb.gameObject); else DestroyImmediate(orb.gameObject); }
+                }
+                powerUps[cell] = PowerUp.Create(type, CellToWorld(cell), parent);
+            }
+        }
+
         void BuildGenerator()
         {
             GameObject go;
@@ -285,7 +410,8 @@ namespace Nexus
                 go = new GameObject("PacMan");
                 var body = new GameObject("Body").transform;
                 body.SetParent(go.transform, false);
-                PacManModel.Create(body, 0.44f);
+                PacManModel.Create(body, 0.46f);  // approved design: Docs/PacManRobot_Design.md
+                Silhouette.Add(body, 0.46f * 1.1f, Visuals.NeonYellow);
                 var light = new GameObject("Glow").AddComponent<Light>();
                 light.transform.SetParent(go.transform, false);
                 light.type = LightType.Point;
@@ -294,11 +420,12 @@ namespace Nexus
                 light.intensity = 2.5f;
             }
             // Yellow ring on the street so Pac-Man is always easy to find
-            GroundRing.Create(go.transform, Visuals.NeonYellow, 0.55f, 2.2f);
+            GroundRing.Create(go.transform, Visuals.NeonYellow, 0.6f, 0.35f);
             if (!go.TryGetComponent(out PlayerMovement mover)) mover = go.AddComponent<PlayerMovement>();
             mover.Init(this, PlayerStart);
             if (!go.TryGetComponent(out PlayerLives _)) go.AddComponent<PlayerLives>();
             if (!go.TryGetComponent(out EnergyBlast _)) go.AddComponent<EnergyBlast>();
+            if (!go.TryGetComponent(out PlayerPowers _)) go.AddComponent<PlayerPowers>();
 
             // BYTE, the hologram companion (its own object, so it can lag behind smoothly)
             ByteCompanion.Create(go.transform);
@@ -323,7 +450,8 @@ namespace Nexus
                     go.transform.SetParent(root, false);
                     var body = new GameObject("Body").transform;
                     body.SetParent(go.transform, false);
-                    BugModel.Create(body, 0.38f, color);
+                    BugModel.Create(body, 0.42f, color);
+                    Silhouette.Add(body, 0.42f * 1.15f, color);
                     var light = new GameObject("Glow").AddComponent<Light>();
                     light.transform.SetParent(go.transform, false);
                     light.type = LightType.Point;
@@ -332,7 +460,7 @@ namespace Nexus
                     light.intensity = 4f;
                 }
                 // Colored ring on the street, visible even behind buildings
-                GroundRing.Create(go.transform, color, 0.5f, 2.5f);
+                GroundRing.Create(go.transform, color, 0.5f, 1.2f);
                 if (!go.TryGetComponent(out BugAI bug)) bug = go.AddComponent<BugAI>();
                 bug.Init(this, spawn.type, spawn.cell, spawn.routeEnd);
             }

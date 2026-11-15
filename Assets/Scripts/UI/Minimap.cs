@@ -3,7 +3,9 @@ using UnityEngine;
 namespace Nexus
 {
     /// <summary>
-    /// Round minimap in the top-right corner, built from the LevelBuilder grid (fog of war).
+    /// Round minimap in the top-right corner, built from the LevelBuilder grid.
+    /// revealAll (default, user decision 10 Nov): whole city, all cores and all Bugs visible from the start.
+    /// With revealAll off it works as fog of war:
     /// - Every cell starts hidden. Cells within revealRadius of Pac-Man become discovered and stay discovered.
     /// - Shows discovered streets and buildings, Pac-Man, Nexus Cores in discovered cells (gone once collected),
     ///   Bugs only on discovered cells within sightRadius of Pac-Man right now, and the Generator always.
@@ -12,10 +14,12 @@ namespace Nexus
     /// </summary>
     public class Minimap : MonoBehaviour
     {
+        [Tooltip("Show the whole city, all Nexus Cores and all Bugs from the start (no fog of war)")]
+        public bool revealAll = true;
         [Tooltip("Cells closer than this to Pac-Man become discovered")]
         public float revealRadius = 3f;
         [Tooltip("Bugs are shown when they are on a discovered cell closer than this to Pac-Man")]
-        public float sightRadius = 5f;
+        public float sightRadius = 10f;
         [Tooltip("Minimap diameter as a fraction of the screen height")]
         public float sizeOfScreen = 0.3f;
         public float margin = 16f;
@@ -67,6 +71,10 @@ namespace Nexus
             diamondTex = MakeShape(32, (x, y) => 1f - (Mathf.Abs(x) + Mathf.Abs(y)));          // diamond
             discTex = MakeShape(128, (x, y) => 1f - new Vector2(x, y).magnitude);              // background
             ringTex = MakeShape(128, (x, y) => 0.03f - Mathf.Abs(new Vector2(x, y).magnitude - 0.96f)); // border
+            if (revealAll)
+                for (int y = 0; y < level.Height; y++)
+                    for (int x = 0; x < level.Width; x++)
+                        discovered[x, y] = true;
             dirty = true;
         }
 
@@ -106,7 +114,7 @@ namespace Nexus
 
         void OnGUI()
         {
-            if (level == null || mapTex == null) return;
+            if (level == null || mapTex == null || IntroSequence.Active) return;
 
             float diameter = Mathf.Clamp(Screen.height * sizeOfScreen, 150f, 360f);
             var circle = new Rect(Screen.width - diameter - margin, margin, diameter, diameter);
@@ -114,7 +122,7 @@ namespace Nexus
             // Dark round panel with a cyan frame
             GUI.color = new Color(0.03f, 0.05f, 0.11f, 0.88f);
             GUI.DrawTexture(circle, discTex);
-            GUI.color = Visuals.Cyan;
+            GUI.color = GameHUD.Accent;
             GUI.DrawTexture(circle, ringTex);
 
             // The square maze fits inside the circle
@@ -124,12 +132,6 @@ namespace Nexus
                                cellPx * level.Width, cellPx * level.Height);
             GUI.color = Color.white;
             GUI.DrawTexture(map, mapTex);
-
-            // Nexus Cores (discovered and not collected)
-            GUI.color = Visuals.NeonYellow;
-            foreach (var c in level.CoreCells)
-                if (discovered[c.x, c.y] && level.HasCore(c))
-                    DrawIcon(map, cellPx, new Vector2(c.x, c.y), 1.1f, diamondTex);
 
             // Generator: always shown; blinks once all cores are collected (go back there)
             var gm = GameManager.Instance;
@@ -145,12 +147,43 @@ namespace Nexus
             {
                 foreach (var bug in BugAI.All)
                 {
+                    if (bug.IsEaten) continue;
                     var bc = bug.CurrentCell;
-                    if (!IsDiscovered(bc) || (bc - player.CurrentCell).sqrMagnitude > sightRadius * sightRadius) continue;
+                    if (!revealAll && (!IsDiscovered(bc) || (bc - player.CurrentCell).sqrMagnitude > sightRadius * sightRadius)) continue;
+                    // Big, pulsing icons so Bugs are easy to spot on the small map
+                    var bp = WorldToGrid(bug.transform.position);
+                    var glow = bug.BodyColor; glow.a = 0.35f + Mathf.Sin(Time.time * 8f) * 0.15f;
+                    GUI.color = glow;
+                    DrawIcon(map, cellPx, bp, 3.2f, dotTex);
                     GUI.color = Color.black;
-                    DrawIcon(map, cellPx, WorldToGrid(bug.transform.position), 1.5f, dotTex);
+                    DrawIcon(map, cellPx, bp, 2.3f, dotTex);
                     GUI.color = bug.BodyColor;
-                    DrawIcon(map, cellPx, WorldToGrid(bug.transform.position), 1.15f, dotTex);
+                    DrawIcon(map, cellPx, bp, 1.9f, dotTex);
+                }
+
+                // Power-ups: small dots in their own colour (Devour blinks like the classic pellet)
+                foreach (var pair in level.PowerUps)
+                {
+                    if (pair.Value == null || !discovered[pair.Key.x, pair.Key.y]) continue;
+                    var pc = pair.Value.type == PowerUpType.Devour && Mathf.Repeat(Time.time * 2.5f, 1f) < 0.4f
+                        ? Color.white : PowerUp.ColorFor(pair.Value.type);
+                    GUI.color = Color.black;
+                    DrawIcon(map, cellPx, new Vector2(pair.Key.x, pair.Key.y), 2.1f, dotTex);
+                    GUI.color = pc;
+                    DrawIcon(map, cellPx, new Vector2(pair.Key.x, pair.Key.y), 1.5f, dotTex);
+                }
+
+                // Nexus Cores (discovered and not collected): big pulsing diamonds with a dark outline,
+                // drawn above the Bugs so a Bug guarding a core never hides it
+                float pulse = 1f + Mathf.Sin(Time.time * 5f) * 0.15f;
+                foreach (var c in level.CoreCells)
+                {
+                    if (!discovered[c.x, c.y] || !level.HasCore(c)) continue;
+                    var cp = new Vector2(c.x, c.y);
+                    GUI.color = Color.black;
+                    DrawIcon(map, cellPx, cp, 2.9f * pulse, diamondTex);
+                    GUI.color = Visuals.NeonYellow;
+                    DrawIcon(map, cellPx, cp, 2.2f * pulse, diamondTex);
                 }
 
                 // Pac-Man on top, with a dark outline so it is easy to spot

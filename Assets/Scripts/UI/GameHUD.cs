@@ -9,12 +9,32 @@ namespace Nexus
     public class GameHUD : MonoBehaviour
     {
         public static GameHUD Instance { get; private set; }
+        /// <summary>Main UI colour of the current level (set by LevelBuilder from its theme).</summary>
+        public static Color Accent = Visuals.Cyan;
 
         GUIStyle label, big, small, tiny, gameOver, value, tinyLeft, tinyRight;
         Texture2D lifeIcon, blastIcon, arrowIcon;
+        Texture2D lifeCell, lifeFrame, lifeGlow;
+        int lastLives = -1;
+        float lifeLostAt = -10f;
+        int lifeLostIndex = -1;
         EnergyBlast blast;
         string message;
         float messageUntil;
+        Texture2D edgeGlow;
+
+        class PopupText { public Vector3 pos; public string text; public Color color; public float start, life; }
+        readonly System.Collections.Generic.List<PopupText> popups = new System.Collections.Generic.List<PopupText>();
+        GUIStyle popupStyle, powerName;
+
+        /// <summary>Floating text at a world position that rises and fades (points for eaten Bugs, power-up names).</summary>
+        public void Popup(Vector3 worldPos, string text, Color color, float seconds)
+        {
+            int recent = 0;
+            foreach (var q in popups) if (Time.time - q.start < 0.5f) recent++;
+            worldPos += Vector3.up * 0.4f * recent;   // several at once: stack them instead of overlapping
+            popups.Add(new PopupText { pos = worldPos, text = text, color = color, start = Time.time, life = seconds });
+        }
 
         void Awake()
         {
@@ -32,17 +52,19 @@ namespace Nexus
         void OnGUI()
         {
             var gm = GameManager.Instance;
-            if (gm == null) return;
+            if (gm == null || IntroSequence.Active) return;
             if (label == null) CreateStyles();
 
             // Status panel (top left): level, Nexus Cores, score, lives
             var panel = new Rect(16f, 16f, 250f, 142f);
+            // Panel border flashes red for a moment when a life is lost
+            float lostFlash = Mathf.Clamp01(1f - (Time.time - lifeLostAt) / 0.6f);
             DrawPanel(panel);
+            if (lostFlash > 0f) DrawFrame(panel, new Color(1f, 0.2f, 0.25f, lostFlash));
             GUI.Label(new Rect(panel.x + 14f, panel.y + 8f, 230f, 26f), gm.levelName.ToUpper(), label);
             GUI.Label(new Rect(panel.x + 14f, panel.y + 38f, 230f, 24f), $"NEXUS CORES  {gm.CoresCollected}/{gm.CoresRequired}", value);
             GUI.Label(new Rect(panel.x + 14f, panel.y + 64f, 230f, 24f), $"SCORE  {gm.Score}", value);
-            for (int i = 0; i < gm.Lives; i++)
-                GUI.DrawTexture(new Rect(panel.x + 14f + i * 34f, panel.y + 98f, 28f, 28f), lifeIcon);
+            DrawLifeCores(gm, new Vector2(panel.x + 14f, panel.y + 94f));
 
             // Energy panel (bottom center): bar 0-100 with the number
             var ePanel = new Rect((Screen.width - 340f) / 2f, Screen.height - 70f, 340f, 54f);
@@ -52,10 +74,16 @@ namespace Nexus
             var bar = new Rect(ePanel.x + 14f, ePanel.y + 30f, ePanel.width - 28f, 12f);
             GUI.color = new Color(1f, 1f, 1f, 0.15f);
             GUI.DrawTexture(bar, Texture2D.whiteTexture);
-            GUI.color = Visuals.Cyan;
+            GUI.color = Accent;
             GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(gm.Energy / gm.maxEnergy), bar.height), Texture2D.whiteTexture);
             GUI.color = Color.white;
 
+            if (gm.IsPlaying)
+            {
+                DrawDevourEdge();
+                DrawPowerStatus(new Vector2(panel.x, panel.yMax + 8f));
+            }
+            DrawPopups();
             DrawBugArrows();
             DrawBlastIcon(new Rect(ePanel.xMax + 18f, Screen.height - 74f, 56f, 56f), gm);
 
@@ -72,6 +100,8 @@ namespace Nexus
             {
                 GUI.Label(new Rect(0, Screen.height / 2f - 40, Screen.width, 60), "REGION RESTORED", big);
                 GUI.Label(new Rect(0, Screen.height / 2f + 20, Screen.width, 30), $"Final score: {gm.Score}", small);
+                GUI.Label(new Rect(0, Screen.height / 2f + 55, Screen.width, 30),
+                    gm.HasNextLevel ? "Press ENTER for the next region" : "More regions coming soon", small);
             }
             else
             {
@@ -90,14 +120,14 @@ namespace Nexus
         void CreateStyles()
         {
             label = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold };
-            label.normal.textColor = Visuals.Cyan;
+            label.normal.textColor = Accent;
             small = new GUIStyle(GUI.skin.label) { fontSize = 18, alignment = TextAnchor.MiddleCenter };
             small.normal.textColor = Visuals.NeonYellow;
             big = new GUIStyle(GUI.skin.label) { fontSize = 48, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            big.normal.textColor = Visuals.Cyan;
+            big.normal.textColor = Accent;
             gameOver = new GUIStyle(big) { fontSize = 64 };
             tiny = new GUIStyle(small) { fontSize = 12, fontStyle = FontStyle.Bold };
-            tiny.normal.textColor = Visuals.Cyan;
+            tiny.normal.textColor = Accent;
             gameOver.normal.textColor = Visuals.CorruptedRed;
             label.fontSize = 18;
             value = new GUIStyle(GUI.skin.label) { fontSize = 17, fontStyle = FontStyle.Bold };
@@ -115,7 +145,7 @@ namespace Nexus
             var old = GUI.color;
             GUI.color = new Color(0.03f, 0.05f, 0.11f, 0.85f * alpha);
             GUI.DrawTexture(r, Texture2D.whiteTexture);
-            var c = Visuals.Cyan;
+            var c = Accent;
             c.a = alpha;
             GUI.color = c;
             GUI.DrawTexture(new Rect(r.x, r.y, r.width, 2f), Texture2D.whiteTexture);
@@ -133,6 +163,7 @@ namespace Nexus
             const float margin = 0.04f;
             foreach (var bug in BugAI.All)
             {
+                if (bug.IsEaten) continue;
                 Vector3 vp = cam.WorldToViewportPoint(bug.transform.position);
                 bool behind = vp.z < 0f;
                 if (!behind && vp.x > margin && vp.x < 1f - margin && vp.y > margin && vp.y < 1f - margin) continue;
@@ -154,6 +185,100 @@ namespace Nexus
                 GUI.DrawTexture(new Rect(center.x - 22f, center.y - 22f, 44f, 44f), arrowIcon);
                 GUI.matrix = old;
                 GUI.color = Color.white;
+            }
+        }
+
+        /// <summary>Devour Mode: soft magenta glow around the screen edge (blinks when the time is almost over).</summary>
+        void DrawDevourEdge()
+        {
+            var powers = PlayerPowers.Instance;
+            if (powers == null || !powers.DevourActive) return;
+            if (edgeGlow == null) edgeGlow = MakeEdgeGlow();
+            float a = 0.55f + 0.15f * Mathf.Sin(Time.time * 6f);
+            if (powers.DevourLeft < powers.devourWarning && Mathf.Repeat(Time.time * 4f, 1f) < 0.5f) a *= 0.35f;
+            var c = PowerUp.ColorFor(PowerUpType.Devour);
+            GUI.color = new Color(c.r, c.g, c.b, a);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), edgeGlow);
+            GUI.color = Color.white;
+        }
+
+        /// <summary>Transparent in the middle, white at the borders (tinted when drawn).</summary>
+        static Texture2D MakeEdgeGlow()
+        {
+            const int W = 128, H = 72;
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    float dx = Mathf.Min(x, W - 1 - x) / (W * 0.16f), dy = Mathf.Min(y, H - 1 - y) / (H * 0.2f);
+                    float a = 1f - Mathf.Clamp01(Mathf.Min(dx, dy));
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a * a));
+                }
+            tex.Apply();
+            return tex;
+        }
+
+        /// <summary>Active power-ups under the status panel: name, time bar (or "1 HIT" for the shield).</summary>
+        void DrawPowerStatus(Vector2 origin)
+        {
+            var powers = PlayerPowers.Instance;
+            if (powers == null) return;
+            if (powerName == null)
+            {
+                powerName = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
+            }
+            float y = origin.y;
+            void Row(PowerUpType type, float left, float total, string extra)
+            {
+                var r = new Rect(origin.x, y, 250f, 30f);
+                var c = PowerUp.ColorFor(type);
+                GUI.color = new Color(0.03f, 0.05f, 0.11f, 0.85f);
+                GUI.DrawTexture(r, Texture2D.whiteTexture);
+                bool ending = total > 0f && left < 2f && Mathf.Repeat(Time.time * 4f, 1f) < 0.5f;
+                GUI.color = ending ? Color.white : c;
+                GUI.DrawTexture(new Rect(r.x, r.y, 4f, r.height), Texture2D.whiteTexture);
+                powerName.normal.textColor = GUI.color;
+                GUI.color = Color.white;
+                GUI.Label(new Rect(r.x + 12f, r.y + 2f, 140f, 18f), PowerUp.NameFor(type), powerName);
+                if (total > 0f)
+                {
+                    var bar = new Rect(r.x + 12f, r.y + 21f, 226f, 4f);
+                    GUI.color = new Color(1f, 1f, 1f, 0.15f);
+                    GUI.DrawTexture(bar, Texture2D.whiteTexture);
+                    GUI.color = c;
+                    GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(left / total), bar.height), Texture2D.whiteTexture);
+                    GUI.color = Color.white;
+                    GUI.Label(new Rect(r.xMax - 60f, r.y + 2f, 50f, 18f), left.ToString("0.0") + "s", powerName);
+                }
+                else GUI.Label(new Rect(r.xMax - 70f, r.y + 2f, 64f, 18f), extra, powerName);
+                y += 34f;
+            }
+            if (powers.DevourActive) Row(PowerUpType.Devour, powers.DevourLeft, powers.devourTime, null);
+            if (powers.SpeedLeft > 0f) Row(PowerUpType.SpeedBurst, powers.SpeedLeft, powers.speedTime, null);
+            if (powers.MagnetLeft > 0f) Row(PowerUpType.Magnet, powers.MagnetLeft, powers.magnetTime, null);
+            if (powers.HasShield) Row(PowerUpType.Shield, 0f, 0f, "1 HIT");
+            GUI.color = Color.white;
+        }
+
+        void DrawPopups()
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+            if (popupStyle == null)
+                popupStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            for (int i = popups.Count - 1; i >= 0; i--)
+            {
+                var p = popups[i];
+                float k = (Time.time - p.start) / p.life;
+                if (k >= 1f) { popups.RemoveAt(i); continue; }
+                var sp = cam.WorldToScreenPoint(p.pos + Vector3.up * k * 0.8f);
+                if (sp.z < 0f) continue;
+                var rect = new Rect(sp.x - 120f, Screen.height - sp.y - 16f, 240f, 32f);
+                float a = k < 0.7f ? 1f : 1f - (k - 0.7f) / 0.3f;
+                popupStyle.normal.textColor = new Color(0f, 0f, 0f, a * 0.8f);
+                GUI.Label(new Rect(rect.x + 2f, rect.y + 2f, rect.width, rect.height), p.text, popupStyle);
+                popupStyle.normal.textColor = new Color(p.color.r, p.color.g, p.color.b, a);
+                GUI.Label(rect, p.text, popupStyle);
             }
         }
 
@@ -197,7 +322,7 @@ namespace Nexus
             }
 
             // Cyan frame, brighter when ready
-            GUI.color = blast.CanUse ? Visuals.Cyan : new Color(0f, 0.85f, 1f, 0.35f);
+            GUI.color = blast.CanUse ? Accent : new Color(Accent.r, Accent.g, Accent.b, 0.35f);
             GUI.DrawTexture(new Rect(r.x, r.y, r.width, 2f), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(r.x, r.yMax - 2f, r.width, 2f), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(r.x, r.y, 2f, r.height), Texture2D.whiteTexture);
@@ -212,7 +337,7 @@ namespace Nexus
         {
             const int size = 48;
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
-            var c = Visuals.Cyan;
+            var c = Accent;
             for (int y = 0; y < size; y++)
                 for (int x = 0; x < size; x++)
                 {
@@ -228,6 +353,107 @@ namespace Nexus
         }
 
         /// <summary>Yellow disc with a wedge cut out (Pac-Man seen from above), drawn into a small texture.</summary>
+        /// <summary>
+        /// Lives as "Life Cores": hexagonal energy cells with Pac-Man's silhouette inside.
+        /// Remaining cells glow yellow (Pac-Man's colour) and pulse; the frame uses the level accent.
+        /// A lost cell flashes red, cracks and fades out, leaving a dim empty frame. The last cell blinks red.
+        /// </summary>
+        void DrawLifeCores(GameManager gm, Vector2 origin)
+        {
+            if (lifeCell == null) { lifeCell = MakeHex(true); lifeFrame = MakeHex(false); lifeGlow = Visuals.GradientTexture(true); }
+            if (lastLives < 0) lastLives = gm.Lives;
+            if (gm.Lives < lastLives) { lifeLostAt = Time.time; lifeLostIndex = gm.Lives; }
+            lastLives = gm.Lives;
+
+            int slots = Mathf.Max(gm.startLives, gm.Lives);
+            const float w = 26f, h = 30f, gap = 8f;
+            float t = Time.time;
+            var old = GUI.color;
+            for (int i = 0; i < slots; i++)
+            {
+                var r = new Rect(origin.x + i * (w + gap), origin.y, w, h);
+                bool alive = i < gm.Lives;
+                bool justLost = i == lifeLostIndex && t - lifeLostAt < 0.8f;
+
+                // empty slot frame
+                GUI.color = new Color(Accent.r, Accent.g, Accent.b, alive ? 0.9f : 0.3f);
+                GUI.DrawTexture(r, lifeFrame);
+
+                if (alive)
+                {
+                    bool warning = gm.Lives == 1;
+                    float pulse = 0.82f + 0.18f * Mathf.Sin(t * (warning ? 7f : 2.5f) + i * 0.9f);
+                    Color c = warning ? Color.Lerp(Visuals.NeonYellow, Visuals.CorruptedRed, 0.5f + 0.5f * Mathf.Sin(t * 7f)) : Color.Lerp(Visuals.NeonYellow, Color.white, 0.2f);
+                    var glowRect = new Rect(r.center.x - w, r.center.y - h, w * 2f, h * 2f);
+                    GUI.color = new Color(c.r, c.g, c.b, 0.5f * pulse);
+                    GUI.DrawTexture(glowRect, lifeGlow);
+                    GUI.color = new Color(c.r, c.g, c.b, pulse);
+                    GUI.DrawTexture(r, lifeCell);
+                }
+                else if (justLost)
+                {
+                    // flash red, swell a little and fade out
+                    float k = (t - lifeLostAt) / 0.8f;
+                    float grow = 1f + k * 0.5f;
+                    var rr = new Rect(r.center.x - w * grow / 2f, r.center.y - h * grow / 2f, w * grow, h * grow);
+                    GUI.color = new Color(1f, 0.25f, 0.3f, 1f - k);
+                    GUI.DrawTexture(rr, lifeCell);
+                    GUI.color = new Color(1f, 1f, 1f, (1f - k) * 0.8f);
+                    GUI.DrawTexture(new Rect(r.center.x - 1f, r.y + 2f, 2f, h - 4f), Texture2D.whiteTexture);   // crack
+                }
+            }
+            GUI.color = new Color(Accent.r, Accent.g, Accent.b, 0.8f);
+            GUI.Label(new Rect(origin.x + slots * (w + gap) + 4f, origin.y + 4f, 120f, 22f), "LIFE CORES", tinyLeft);
+            GUI.color = old;
+        }
+
+        static void DrawFrame(Rect r, Color c)
+        {
+            var old = GUI.color;
+            GUI.color = c;
+            GUI.DrawTexture(new Rect(r.x, r.y, r.width, 3f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(r.x, r.yMax - 3f, r.width, 3f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(r.x, r.y, 3f, r.height), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(r.xMax - 3f, r.y, 3f, r.height), Texture2D.whiteTexture);
+            GUI.color = old;
+        }
+
+        /// <summary>White pointy-top hexagon (tinted when drawn): filled with Pac-Man's silhouette, or only its outline.</summary>
+        static Texture2D MakeHex(bool filled)
+        {
+            const int W = 52, H = 60;
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            float R = W / 2f - 1.5f;
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    float px = Mathf.Abs(x - W / 2f + 0.5f), py = Mathf.Abs(y - H / 2f + 0.5f);
+                    // distance to a pointy-top hexagon edge (inradius R horizontally)
+                    float d = Mathf.Max(px, px * 0.5f + py * 0.866f);
+                    Color c;
+                    if (filled)
+                    {
+                        float a = Mathf.Clamp01(R - 2f - d);
+                        float shade = 0.92f + 0.08f * (1f - (y / (float)H));
+                        // Pac-Man silhouette in the middle (darker), mouth to the right
+                        float cx = x - W / 2f + 0.5f, cy = y - H / 2f + 0.5f;
+                        float pr = Mathf.Sqrt(cx * cx + cy * cy);
+                        float ang = Mathf.Abs(Mathf.Atan2(cy, cx)) * Mathf.Rad2Deg;
+                        bool pac = pr < R * 0.5f && !(ang < 35f && cx > 0f);
+                        if (pac) shade *= 0.28f;
+                        c = new Color(shade, shade, shade, a);
+                    }
+                    else
+                    {
+                        float a = Mathf.Clamp01(1.6f - Mathf.Abs(d - (R - 0.5f)));
+                        c = new Color(1f, 1f, 1f, a);
+                    }
+                    tex.SetPixel(x, y, c);
+                }
+            tex.Apply();
+            return tex;
+        }
+
         static Texture2D MakeLifeIcon()
         {
             const int size = 32;

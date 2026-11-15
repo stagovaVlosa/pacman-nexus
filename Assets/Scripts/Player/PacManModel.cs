@@ -84,8 +84,14 @@ namespace Nexus
             public Material rubber = Visuals.Lit(Visuals.Hex("#12161F"), 0.2f, 0.4f);
             public Material cyan = Visuals.Lit(Visuals.Cyan, 0f, 0.6f, Visuals.Cyan, 2f);
             public Material amber = Visuals.Lit(Visuals.Hex("#FFA31A"), 0f, 0.6f, Amber, 1.6f);
-            public Material glass = Visuals.Glass(GlassYellow, 0.34f, Visuals.Hex("#7A5600"));
-            public Material rim = Visuals.Glow(Visuals.Hex("#FFB000"), 3.2f, 2.2f);
+            public Material glass = Smooth(Visuals.Glass(GlassYellow, 0.9f, new Color(1f, 0.72f, 0f) * 1.1f), 0.6f);
+            public Material rim = Visuals.Glow(Visuals.Hex("#FFB000"), 1.3f, 3f);
+        }
+
+        static Material Smooth(Material m, float smoothness)
+        {
+            m.SetFloat("_Smoothness", smoothness);
+            return m;
         }
 
         // ---------- shell halves ----------
@@ -186,7 +192,7 @@ namespace Nexus
             var coreMesh = new MeshBuilder();
             coreMesh.Icosahedron(Vector3.zero, 0.2f, 1, true);
             coreEmission = Visuals.Hex("#FFC93A");
-            coreMat = Visuals.Lit(Visuals.Hex("#FFF0B0"), 0f, 0.5f, coreEmission, 2.4f);
+            coreMat = Visuals.Lit(Visuals.Hex("#FFF0B0"), 0f, 0.5f, coreEmission, 1.4f);
             core = Visuals.MeshPart("Core", inner, coreMesh.ToMesh("Core"), coreMat).transform;
 
             var cageMesh = new MeshBuilder();
@@ -339,7 +345,7 @@ namespace Nexus
 
             core.Rotate(30f * dt, 46f * dt, 0f, Space.Self);
             cage.Rotate(0f, -23f * dt, 0f, Space.Self);
-            coreMat.SetColor("_EmissionColor", coreEmission * (2.2f + Mathf.Sin(t * 3f) * 0.4f));
+            coreMat.SetColor("_EmissionColor", coreEmission * (1.3f + Mathf.Sin(t * 3f) * 0.3f));
             gyroA.Rotate(52f * dt, 17f * dt, 0f, Space.Self);
             gyroB.Rotate(-23f * dt, 0f, 34f * dt, Space.Self);
 

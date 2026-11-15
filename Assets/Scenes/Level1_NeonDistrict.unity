@@ -328,8 +328,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Nexus.CameraFollow
   target: {fileID: 0}
-  offset: {x: 0, y: 9.5, z: -3.5}
+  viewPitch: 66
+  viewDistance: 9.5
+  viewFov: 50
   smoothTime: 0.18
+  leadDistance: 1.2
+  lookAheadTime: 0.45
 --- !u!114 &443038901
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -477,6 +481,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 780ab09b10e5993498233dced4ecaadf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Nexus.LevelBuilder
+  levelName: Neon District
+  levelNumber: 1
+  theme: 0
+  nextScenePath: Assets/Scenes/Level2_SkylineZone.unity
   layout: {fileID: 4900000, guid: c9f31899427664f47b72590c73c966d5, type: 3}
   cellSize: 1
   wallHeight: 1.2
@@ -486,6 +494,7 @@ MonoBehaviour:
   corePrefab: {fileID: 0}
   generatorPrefab: {fileID: 0}
   playerPrefab: {fileID: 0}
+  bugPrefab: {fileID: 0}
 --- !u!4 &546718727
 Transform:
   m_ObjectHideFlags: 0
@@ -579,6 +588,7 @@ MonoBehaviour:
   coreScore: 500
   orbEnergy: 1
   maxEnergy: 100
+  startLives: 3
 --- !u!4 &2132548045
 Transform:
   m_ObjectHideFlags: 0

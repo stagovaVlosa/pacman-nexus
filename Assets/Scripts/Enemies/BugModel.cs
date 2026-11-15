@@ -31,6 +31,7 @@ namespace Nexus
         readonly List<Transform> particles = new List<Transform>();
         readonly List<float> particleSpeed = new List<float>();
         float radius, t, seed, nextGlitch, glitchLeft, lightBase;
+        bool wasScared;
 
         public static BugModel Create(Transform body, float radius, Color color)
         {
@@ -200,13 +201,22 @@ namespace Nexus
 
             // Frozen by an Energy Blast: lights turn cyan and steady, the rotor and glitches stop
             bool frozen = ai != null && ai.IsFrozen;
-            if (!frozen) rotor.Rotate(0f, spinSpeed * dt, 0f, Space.Self);
-            Color c = frozen ? Visuals.Cyan : Red;
+            // Devour Mode: blue (blinking white near the end), like the classic frightened ghosts
+            bool scared = ai != null && ai.IsVulnerable;
+            if (!frozen) rotor.Rotate(0f, spinSpeed * dt * (scared ? 0.5f : 1f), 0f, Space.Self);
+            Color c = scared ? ai.BodyColor : frozen ? Visuals.Cyan : Red;
+            if (scared != wasScared || scared)
+            {
+                beamMat.SetColor("_Color", scared ? c : Red);
+                groundMat.SetColor("_Color", scared ? c : Red);
+                if (glowLight != null) glowLight.color = scared ? c : Red;
+                wasScared = scared;
+            }
 
             float boost = glitchLeft > 0f ? 1.6f : 1f;
             lightMat.SetColor("_EmissionColor", c * (2.2f * (frozen ? 0.8f : Flicker(0f)) * boost));
             coreMat.SetColor("_EmissionColor", c * (2.5f * (frozen ? 0.8f : Flicker(10f)) * boost));
-            tipMat.SetColor("_EmissionColor", Red * (Mathf.Repeat(t, 0.8f) < 0.15f ? 5f : 0.3f));
+            tipMat.SetColor("_EmissionColor", scared ? c * 2f : Red * (Mathf.Repeat(t, 0.8f) < 0.15f ? 5f : 0.3f));
             beamMat.SetFloat("_Intensity", 0.4f * Flicker(20f));
             groundMat.SetFloat("_Intensity", 0.8f * Flicker(30f));
             if (glowLight != null) glowLight.intensity = lightBase * Flicker(0f) * boost;
@@ -218,7 +228,13 @@ namespace Nexus
                 shards[i].Rotate(90f * dt, 60f * dt, 0f, Space.Self);
             }
 
-            if (!frozen) UpdateGlitch(dt);
+            if (scared && glitchLeft > 0f)
+            {
+                glitchLeft = 0f;
+                drone.localPosition = Vector3.zero;
+                drone.localScale = Vector3.one * radius;
+            }
+            if (!frozen && !scared) UpdateGlitch(dt);
 
             float groundLocal = (GroundY - drone.position.y) / drone.lossyScale.y;
             for (int i = 0; i < particles.Count; i++)

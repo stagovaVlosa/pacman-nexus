@@ -11,10 +11,10 @@ namespace Nexus
     /// </summary>
     public class BuildingFader : MonoBehaviour
     {
-        public float fadedAlpha = 0.2f;
+        public float fadedAlpha = 0.08f;
         public float fadeSpeed = 5f;      // alpha per second
         public float checkRadius = 10f;   // only buildings this close to Pac-Man (XZ) are tested
-        public int aheadCells = 6;
+        public int aheadCells = 2;
 
         class Building
         {
@@ -138,6 +138,16 @@ namespace Nexus
                     b.renderers[i].SetPropertyBlock(null);
                     for (int m = 0; m < b.opaque[i].Length; m++) b.renderers[i].SetPropertyBlock(null, m);
                 }
+            }
+            // Neon rims and signs (not Lit, so no transparent copy) disappear while the building is faded,
+            // otherwise they float in the air and clutter the view around Pac-Man
+            bool showGlow = b.alpha > 0.6f;
+            for (int i = 0; i < b.renderers.Length; i++)
+            {
+                bool allGlow = true;
+                for (int m = 0; m < b.opaque[i].Length; m++)
+                    if (b.faded[i][m] != b.opaque[i][m]) { allGlow = false; break; }
+                if (allGlow) b.renderers[i].enabled = showGlow;
             }
             if (!fade) return;
 
