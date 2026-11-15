@@ -1,5 +1,8 @@
 # PAC-MAN: NEXUS — THE LOST CITY (Unity)
 
+> **Vlerësimi gjysmësemestral (PBT 1–7):**
+> [PBT 7 – Arkitektura (PDF)](Docs/PBT7_Arkitektura_PAC-MAN_NEXUS.pdf) · [PBT 7 në Markdown](Docs/PBT7_Arkitektura.md) · [Game Design Document](Docs/GDD.md) · [Development log](Docs/Progress.md)
+
 A modern 3D cyberpunk reimagining of Pac-Man. Pac-Man, a forgotten energy-collection robot, wakes up in Nexus City after its central AI shut everything down, and has to restart the generators of five districts, one maze at a time. His companion BYTE, a small hologram robot, guides him.
 
 Team: Vjola Gallapeni, Vlosa Stagova, Enita Halimi
@@ -49,7 +52,7 @@ Planned: Level 3 Underground Transit Maze (Glitch), Level 4 Data Core (Intercept
 
 Levels are text files in `Assets/Levels/` (`#` wall, `.` orb, `C` Nexus Core, `P` start, `G` generator, `H`/`B`/`S`/digits = Bugs, `*` `>` `+` `%` = power-ups).
 
-Documentation: `Docs/GDD.md` (design), `Docs/Progress.md` (development log), `Docs/PBT7_Arkitektura.md` (architecture, interfaces, code review).
+Documentation: `Docs/GDD.md` (design), `Docs/Progress.md` (development log), `Docs/PBT7_Arkitektura.md` and `Docs/PBT7_Arkitektura_PAC-MAN_NEXUS.pdf` (architecture, interfaces, code review).
 
 ## Credits
 - City buildings: [Kenney City Kit (Commercial)](https://kenney.nl), CC0
