@@ -11,6 +11,9 @@ namespace Nexus
     /// </summary>
     public class ByteCompanion : MonoBehaviour
     {
+        // FPS: no GUILayout here, so skip IMGUI's extra Layout pass
+        void Awake() => useGUILayout = false;
+
         public Transform target;
         [Tooltip("Distance behind Pac-Man (opposite his facing direction)")]
         public float behind = 0.7f;

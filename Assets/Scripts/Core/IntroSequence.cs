@@ -20,6 +20,9 @@ namespace Nexus
     /// </summary>
     public class IntroSequence : MonoBehaviour
     {
+        // FPS: no GUILayout here, so skip IMGUI's extra Layout pass
+        void Awake() => useGUILayout = false;
+
         public static bool Active { get; private set; }
         /// <summary>Set by GameManager.Restart so retrying a level skips its title card.</summary>
         public static bool SkipNextLevelCard;

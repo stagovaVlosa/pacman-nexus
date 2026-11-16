@@ -18,7 +18,7 @@ namespace Nexus
     /// <summary>
     /// A power-up item on a street cell (layout: * Devour, &gt; Speed Burst, + Shield, % Magnet;
     /// when a layout has none, LevelBuilder places a default set). Collected when Pac-Man enters the cell.
-    /// The look is built in code: every type has its own colour and shape so it reads at a glance.
+    /// The look is built in code: neon hologram fruits, every type has its own colour and fruit.
     /// </summary>
     public class PowerUp : MonoBehaviour
     {
@@ -33,7 +33,7 @@ namespace Nexus
             switch (t)
             {
                 case PowerUpType.Devour: return Visuals.Hex("#FF3BD4");      // hot magenta
-                case PowerUpType.SpeedBurst: return Visuals.Hex("#3DFF8C");  // electric green
+                case PowerUpType.SpeedBurst: return Visuals.Hex("#A6FF2E");  // lime green (not cyan: stays apart from the orbs)
                 case PowerUpType.Shield: return Visuals.Hex("#4DA6FF");      // shield blue
                 default: return Visuals.Hex("#C27BFF");                      // magnet violet
             }
@@ -62,99 +62,102 @@ namespace Nexus
             return p;
         }
 
+        /// <summary>Fruit the power-up looks like (HUD legend and minimap use the same names).</summary>
+        public static string FruitFor(PowerUpType t)
+        {
+            switch (t)
+            {
+                case PowerUpType.Devour: return "APPLE";
+                case PowerUpType.SpeedBurst: return "LIME";
+                case PowerUpType.Shield: return "PLUM";
+                default: return "GRAPES";
+            }
+        }
+
+        /// <summary>Very short explanation for the HUD legend.</summary>
+        public static string EffectFor(PowerUpType t)
+        {
+            switch (t)
+            {
+                case PowerUpType.Devour: return "Eat the Bugs";
+                case PowerUpType.SpeedBurst: return "Move faster";
+                case PowerUpType.Shield: return "Blocks 1 hit";
+                default: return "Pulls orbs";
+            }
+        }
+
+        /// <summary>
+        /// Neon hologram fruits (calm look, 16 Nov): Apple = Devour, Lime = Speed Burst, Plum = Shield, Grapes = Magnet.
+        /// Soft glow only (no big halo), slow spin, small ring on the street.
+        /// </summary>
         void Build()
         {
             Color c = ColorFor(type);
             visual = new GameObject("Visual").transform;
             visual.SetParent(transform, false);
-            visual.localPosition = new Vector3(0f, 0.55f, 0f);
+            visual.localPosition = new Vector3(0f, 0.5f, 0f);
             spinner = new GameObject("Spinner").transform;
             spinner.SetParent(visual, false);
 
-            coreMat = Visuals.Lit(Color.Lerp(c, Color.white, 0.35f), 0f, 0.6f, c, 3.5f);
-            var rimMat = Visuals.Glow(c, 2.2f, 0f);
-            var halo = Visuals.Glow(c, 1.1f, 2.2f);
+            coreMat = Visuals.Lit(c, 0f, 0.8f, c, 1.0f);   // own colour, soft glow (stronger washes it out to white)
+            var leafMat = Visuals.GetMaterial(Visuals.Hex("#3DFF8C"), Visuals.Hex("#3DFF8C"), 1.2f);
+            var stemMat = Visuals.Lit(Visuals.Hex("#2A1C14"), 0f, 0.3f);
 
             switch (type)
             {
                 case PowerUpType.Devour:
                 {
-                    // Big overcharged energy pellet: white-hot core, magenta aura and two crossing rings
-                    Visuals.Shape(PrimitiveType.Sphere, "Core", visual, Vector3.zero, Vector3.one * 0.34f,
-                        Visuals.Lit(Color.white, 0f, 0.6f, Color.Lerp(c, Color.white, 0.5f), 4f));
-                    Ring(spinner, 0.32f, 0.025f, rimMat, Quaternion.Euler(70f, 0f, 0f));
-                    Ring(spinner, 0.32f, 0.025f, rimMat, Quaternion.Euler(70f, 90f, 0f));
-                    Visuals.Shape(PrimitiveType.Sphere, "Halo", visual, Vector3.zero, Vector3.one * 0.75f, halo);
+                    // Apple: round body, small stem and one leaf
+                    Visuals.Shape(PrimitiveType.Sphere, "Fruit", spinner, Vector3.zero, new Vector3(0.36f, 0.32f, 0.36f), coreMat);
+                    Visuals.Shape(PrimitiveType.Cylinder, "Stem", spinner, new Vector3(0f, 0.19f, 0f), new Vector3(0.025f, 0.05f, 0.025f), stemMat);
+                    var leaf = Visuals.Shape(PrimitiveType.Sphere, "Leaf", spinner, new Vector3(0.06f, 0.2f, 0f), new Vector3(0.12f, 0.02f, 0.06f), leafMat);
+                    leaf.transform.localRotation = Quaternion.Euler(0f, 0f, 25f);
                     break;
                 }
                 case PowerUpType.SpeedBurst:
                 {
-                    // Double chevron (>>) pointing forward, spinning around
-                    for (int i = 0; i < 2; i++)
-                    {
-                        float z = -0.1f + i * 0.17f;
-                        var a = Visuals.Shape(PrimitiveType.Cube, "Chevron", spinner, new Vector3(-0.08f, 0f, z), new Vector3(0.06f, 0.06f, 0.24f), coreMat);
-                        a.transform.localRotation = Quaternion.Euler(0f, 40f, 0f);
-                        var b = Visuals.Shape(PrimitiveType.Cube, "Chevron", spinner, new Vector3(0.08f, 0f, z), new Vector3(0.06f, 0.06f, 0.24f), coreMat);
-                        b.transform.localRotation = Quaternion.Euler(0f, -40f, 0f);
-                    }
-                    Visuals.Shape(PrimitiveType.Sphere, "Halo", visual, Vector3.zero, Vector3.one * 0.6f, halo);
+                    // Lime: stretched oval with two small pointy ends
+                    Visuals.Shape(PrimitiveType.Sphere, "Fruit", spinner, Vector3.zero, new Vector3(0.26f, 0.26f, 0.36f), coreMat);
+                    Visuals.Shape(PrimitiveType.Sphere, "TipF", spinner, new Vector3(0f, 0f, 0.18f), Vector3.one * 0.07f, coreMat);
+                    Visuals.Shape(PrimitiveType.Sphere, "TipB", spinner, new Vector3(0f, 0f, -0.18f), Vector3.one * 0.07f, coreMat);
                     break;
                 }
                 case PowerUpType.Shield:
                 {
-                    // Hexagon frame standing up, with a small core in the middle
-                    var mb = new MeshBuilder();
-                    mb.Tube(MeshBuilder.Circle(0.24f, 6, Vector3.zero, Quaternion.identity), 0.035f, 6, true);
-                    Visuals.MeshPart("Hex", spinner, mb.ToMesh("ShieldHex"), coreMat);
-                    Visuals.Shape(PrimitiveType.Sphere, "Core", spinner, Vector3.zero, Vector3.one * 0.14f, rimMat);
-                    Visuals.Shape(PrimitiveType.Sphere, "Halo", visual, Vector3.zero, Vector3.one * 0.62f, halo);
+                    // Plum: slightly oval, short stem, leaf
+                    Visuals.Shape(PrimitiveType.Sphere, "Fruit", spinner, Vector3.zero, new Vector3(0.3f, 0.34f, 0.3f), coreMat);
+                    Visuals.Shape(PrimitiveType.Cylinder, "Stem", spinner, new Vector3(0f, 0.2f, 0f), new Vector3(0.02f, 0.04f, 0.02f), stemMat);
+                    var leaf = Visuals.Shape(PrimitiveType.Sphere, "Leaf", spinner, new Vector3(-0.05f, 0.2f, 0f), new Vector3(0.1f, 0.02f, 0.05f), leafMat);
+                    leaf.transform.localRotation = Quaternion.Euler(0f, 0f, -25f);
                     break;
                 }
                 default:
                 {
-                    // Horseshoe magnet: half ring with two bright tips
-                    var arc = new System.Collections.Generic.List<Vector3>();
-                    for (int i = 0; i <= 16; i++)
+                    // Grapes: small berries in an upside-down cone, stem on top
+                    var berries = new[]
                     {
-                        float a = Mathf.PI * i / 16f;
-                        arc.Add(new Vector3(Mathf.Cos(a) * 0.17f, -Mathf.Sin(a) * 0.17f, 0f));
-                    }
-                    arc.Insert(0, new Vector3(0.17f, 0.12f, 0f));
-                    arc.Add(new Vector3(-0.17f, 0.12f, 0f));
-                    var mb = new MeshBuilder();
-                    mb.Tube(arc, 0.05f, 8, false);
-                    Visuals.MeshPart("Magnet", spinner, mb.ToMesh("Magnet"), coreMat);
-                    Visuals.Shape(PrimitiveType.Cube, "TipL", spinner, new Vector3(0.17f, 0.15f, 0f), Vector3.one * 0.1f, Visuals.GetMaterial(Color.white, Color.white, 2.5f));
-                    Visuals.Shape(PrimitiveType.Cube, "TipR", spinner, new Vector3(-0.17f, 0.15f, 0f), Vector3.one * 0.1f, Visuals.GetMaterial(Color.white, Color.white, 2.5f));
-                    Visuals.Shape(PrimitiveType.Sphere, "Halo", visual, Vector3.zero, Vector3.one * 0.62f, halo);
+                        new Vector3(-0.09f, 0.08f, 0f), new Vector3(0f, 0.08f, 0.08f), new Vector3(0.09f, 0.08f, 0f), new Vector3(0f, 0.08f, -0.08f),
+                        new Vector3(-0.045f, -0.02f, 0.045f), new Vector3(0.045f, -0.02f, -0.045f), new Vector3(0.045f, -0.02f, 0.045f),
+                        new Vector3(0f, -0.11f, 0f),
+                    };
+                    foreach (var b in berries) Visuals.Shape(PrimitiveType.Sphere, "Grape", spinner, b, Vector3.one * 0.12f, coreMat);
+                    Visuals.Shape(PrimitiveType.Cylinder, "Stem", spinner, new Vector3(0f, 0.17f, 0f), new Vector3(0.02f, 0.04f, 0.02f), stemMat);
                     break;
                 }
             }
             foreach (var r in GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            GroundRing.Create(transform, c, 0.42f, 0.9f);
-        }
-
-        static void Ring(Transform parent, float r, float thickness, Material mat, Quaternion rot)
-        {
-            var mb = new MeshBuilder();
-            mb.Tube(MeshBuilder.Circle(r, 40, Vector3.zero, Quaternion.identity), thickness, 6, true);
-            var go = Visuals.MeshPart("Ring", parent, mb.ToMesh("PowerRing"), mat);
-            go.transform.localRotation = rot;
+            GroundRing.Create(transform, c, 0.32f, 0.5f);
         }
 
         void Update()
         {
             if (visual == null) return;
             float t = Time.time + phase;
-            visual.localPosition = new Vector3(0f, 0.55f + Mathf.Sin(t * 2.2f) * 0.07f, 0f);
-            spinner.Rotate(0f, (type == PowerUpType.Devour ? 140f : 90f) * Time.deltaTime, 0f, Space.World);
-            // Devour pellet blinks like the classic power pellet
-            float pulse = type == PowerUpType.Devour
-                ? (Mathf.Repeat(t * 2.5f, 1f) < 0.5f ? 1f : 0.45f)
-                : 0.75f + 0.25f * Mathf.Sin(t * 4f);
-            visual.localScale = Vector3.one * (type == PowerUpType.Devour ? 0.9f + 0.15f * pulse : 1f);
-            if (coreMat != null) coreMat.SetColor("_EmissionColor", ColorFor(type) * (3.5f * pulse));
+            visual.localPosition = new Vector3(0f, 0.5f + Mathf.Sin(t * 1.8f) * 0.05f, 0f);
+            spinner.Rotate(0f, 50f * Time.deltaTime, 0f, Space.World);
+            // Gentle breathing glow (no hard blinking)
+            float pulse = 0.85f + 0.15f * Mathf.Sin(t * 2f);
+            if (coreMat != null) coreMat.SetColor("_EmissionColor", ColorFor(type) * (1.0f * pulse));
         }
 
         public void Collect()

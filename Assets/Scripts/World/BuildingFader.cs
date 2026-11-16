@@ -8,6 +8,10 @@ namespace Nexus
     /// the street ahead of him (up to 'aheadCells' in his movement direction) or a Bug,
     /// so the important things are never hidden. Sits on the "Walls" root; every direct child is one building.
     /// Visual only: uses bounding boxes and rays (no physics), the grid is not touched.
+    ///
+    /// FPS (16 Nov): buildings are drawn merged into big "chunk" meshes (one mesh per material per 8x8 cells),
+    /// which cuts thousands of draw calls (Level 2 had ~2000 renderers). Only a building that is fading uses its own
+    /// renderers: it is taken out of its chunk while faded and put back once it is solid again.
     /// </summary>
     public class BuildingFader : MonoBehaviour
     {
@@ -23,7 +27,32 @@ namespace Nexus
             public Material[][] opaque, faded;
             public float alpha = 1f;
             public bool usingFaded;
+            // chunk merging
+            public List<Part> parts;      // null = cannot be merged (keeps its own renderers)
+            public Chunk chunk;
+            public bool attached;         // true = drawn by the chunk, own renderers off
         }
+
+        struct Part
+        {
+            public Mesh mesh;
+            public int subMesh;
+            public Matrix4x4 matrix;
+            public Material material;
+            public UnityEngine.Rendering.ShadowCastingMode shadows;
+        }
+
+        class Chunk
+        {
+            public readonly List<Building> buildings = new List<Building>();
+            public readonly List<GameObject> objects = new List<GameObject>();
+            public readonly List<Mesh> meshes = new List<Mesh>();
+            public bool dirty;
+        }
+
+        const int ChunkCells = 8;
+        readonly Dictionary<Vector2Int, Chunk> chunks = new Dictionary<Vector2Int, Chunk>();
+        Transform chunkRoot;
 
         readonly List<Building> buildings = new List<Building>();
         static readonly Dictionary<Material, Material> transparentCopies = new Dictionary<Material, Material>();
@@ -50,7 +79,106 @@ namespace Nexus
                     b.faded[i] = new Material[b.opaque[i].Length];
                     for (int m = 0; m < b.opaque[i].Length; m++) b.faded[i][m] = TransparentCopy(b.opaque[i][m]);
                 }
+                b.parts = CollectParts(rs, b.opaque);
                 buildings.Add(b);
+            }
+            SetupChunks();
+        }
+
+        /// <summary>Every sub-mesh of the building as a mergeable part, or null if a mesh cannot be read.</summary>
+        static List<Part> CollectParts(Renderer[] rs, Material[][] mats)
+        {
+            var parts = new List<Part>();
+            for (int i = 0; i < rs.Length; i++)
+            {
+                if (!(rs[i] is MeshRenderer) || !rs[i].TryGetComponent(out MeshFilter mf)) return null;
+                var mesh = mf.sharedMesh;
+                if (mesh == null || !mesh.isReadable || mats[i].Length == 0) return null;
+                for (int s = 0; s < mesh.subMeshCount; s++)
+                {
+                    var mat = mats[i][Mathf.Min(s, mats[i].Length - 1)];
+                    if (mat == null) continue;
+                    parts.Add(new Part
+                    {
+                        mesh = mesh, subMesh = s, matrix = rs[i].localToWorldMatrix,
+                        material = mat, shadows = rs[i].shadowCastingMode
+                    });
+                }
+            }
+            return parts;
+        }
+
+        void SetupChunks()
+        {
+            var level = LevelBuilder.Instance;
+            float size = (level != null ? level.cellSize : 1f) * ChunkCells;
+            chunkRoot = new GameObject("WallChunks").transform;   // not under Walls: every Walls child is a building
+            chunkRoot.SetParent(transform.parent, false);
+            chunkRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            chunkRoot.localScale = Vector3.one;
+            foreach (var b in buildings)
+            {
+                if (b.parts == null) continue;
+                var key = new Vector2Int(Mathf.FloorToInt(b.bounds.center.x / size), Mathf.FloorToInt(b.bounds.center.z / size));
+                if (!chunks.TryGetValue(key, out var chunk)) chunks[key] = chunk = new Chunk();
+                chunk.buildings.Add(b);
+                b.chunk = chunk;
+                Attach(b);
+            }
+            RebuildDirtyChunks();
+        }
+
+        void Attach(Building b)
+        {
+            if (b.attached || b.chunk == null) return;
+            b.attached = true;
+            foreach (var r in b.renderers) r.enabled = false;
+            b.chunk.dirty = true;
+        }
+
+        void Detach(Building b)
+        {
+            if (!b.attached) return;
+            b.attached = false;
+            foreach (var r in b.renderers) r.enabled = true;
+            b.chunk.dirty = true;
+        }
+
+        readonly Dictionary<(Material, UnityEngine.Rendering.ShadowCastingMode), List<CombineInstance>> groups =
+            new Dictionary<(Material, UnityEngine.Rendering.ShadowCastingMode), List<CombineInstance>>();
+
+        /// <summary>Rebuilds the merged meshes of every chunk whose set of attached buildings changed.</summary>
+        void RebuildDirtyChunks()
+        {
+            foreach (var chunk in chunks.Values)
+            {
+                if (!chunk.dirty) continue;
+                chunk.dirty = false;
+                foreach (var go in chunk.objects) Destroy(go);
+                foreach (var m in chunk.meshes) Destroy(m);
+                chunk.objects.Clear();
+                chunk.meshes.Clear();
+                foreach (var list in groups.Values) list.Clear();
+                foreach (var b in chunk.buildings)
+                {
+                    if (!b.attached) continue;
+                    foreach (var p in b.parts)
+                    {
+                        var key = (p.material, p.shadows);
+                        if (!groups.TryGetValue(key, out var list)) groups[key] = list = new List<CombineInstance>();
+                        list.Add(new CombineInstance { mesh = p.mesh, subMeshIndex = p.subMesh, transform = p.matrix });
+                    }
+                }
+                foreach (var pair in groups)
+                {
+                    if (pair.Value.Count == 0) continue;
+                    var mesh = new Mesh { name = "WallChunk", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                    mesh.CombineMeshes(pair.Value.ToArray(), true, true);
+                    var go = Visuals.MeshPart("WallChunk", chunkRoot, mesh, pair.Key.Item1);
+                    go.GetComponent<MeshRenderer>().shadowCastingMode = pair.Key.Item2;
+                    chunk.objects.Add(go);
+                    chunk.meshes.Add(mesh);
+                }
             }
         }
 
@@ -109,10 +237,16 @@ namespace Nexus
                 bool blocks = new Vector2(c.x - target.x, c.z - target.z).sqrMagnitude < checkRadius * checkRadius
                               && Blocks(b.bounds, camPos, points);
                 float want = blocks ? fadedAlpha : 1f;
-                if (Mathf.Approximately(b.alpha, want) && b.usingFaded == (want < 1f)) continue;
+                if (want < 1f) Detach(b);   // a fading building draws itself (its chunk drops it)
+                if (Mathf.Approximately(b.alpha, want) && b.usingFaded == (want < 1f))
+                {
+                    if (want >= 1f) Attach(b);   // solid again: back into its chunk
+                    continue;
+                }
                 b.alpha = Mathf.MoveTowards(b.alpha, want, fadeSpeed * dt);
                 Apply(b);
             }
+            RebuildDirtyChunks();
         }
 
         static bool Blocks(Bounds bounds, Vector3 camPos, List<Vector3> points)

@@ -14,6 +14,9 @@ namespace Nexus
     /// </summary>
     public class Minimap : MonoBehaviour
     {
+        // FPS: no GUILayout here, so skip IMGUI's extra Layout pass
+        void Awake() => useGUILayout = false;
+
         [Tooltip("Show the whole city, all Nexus Cores and all Bugs from the start (no fog of war)")]
         public bool revealAll = true;
         [Tooltip("Cells closer than this to Pac-Man become discovered")]

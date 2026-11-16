@@ -39,6 +39,7 @@ namespace Nexus
         void Awake()
         {
             Instance = this;
+            useGUILayout = false;   // FPS: no GUILayout here, so skip IMGUI's extra Layout pass
             if (!TryGetComponent(out Minimap _)) gameObject.AddComponent<Minimap>();
         }
 
@@ -56,7 +57,7 @@ namespace Nexus
             if (label == null) CreateStyles();
 
             // Status panel (top left): level, Nexus Cores, score, lives
-            var panel = new Rect(16f, 16f, 250f, 142f);
+            var panel = new Rect(16f, 16f, 250f, 124f);
             // Panel border flashes red for a moment when a life is lost
             float lostFlash = Mathf.Clamp01(1f - (Time.time - lifeLostAt) / 0.6f);
             DrawPanel(panel);
@@ -64,7 +65,7 @@ namespace Nexus
             GUI.Label(new Rect(panel.x + 14f, panel.y + 8f, 230f, 26f), gm.levelName.ToUpper(), label);
             GUI.Label(new Rect(panel.x + 14f, panel.y + 38f, 230f, 24f), $"NEXUS CORES  {gm.CoresCollected}/{gm.CoresRequired}", value);
             GUI.Label(new Rect(panel.x + 14f, panel.y + 64f, 230f, 24f), $"SCORE  {gm.Score}", value);
-            DrawLifeCores(gm, new Vector2(panel.x + 14f, panel.y + 94f));
+            DrawLifeCores(gm, new Vector2(panel.x + 14f, panel.y + 92f));
 
             // Energy panel (bottom center): bar 0-100 with the number
             var ePanel = new Rect((Screen.width - 340f) / 2f, Screen.height - 70f, 340f, 54f);
@@ -81,7 +82,7 @@ namespace Nexus
             if (gm.IsPlaying)
             {
                 DrawDevourEdge();
-                DrawPowerStatus(new Vector2(panel.x, panel.yMax + 8f));
+                DrawPowerLegend(new Vector2(panel.x, panel.yMax + 8f));
             }
             DrawPopups();
             DrawBugArrows();
@@ -194,8 +195,9 @@ namespace Nexus
             var powers = PlayerPowers.Instance;
             if (powers == null || !powers.DevourActive) return;
             if (edgeGlow == null) edgeGlow = MakeEdgeGlow();
-            float a = 0.55f + 0.15f * Mathf.Sin(Time.time * 6f);
-            if (powers.DevourLeft < powers.devourWarning && Mathf.Repeat(Time.time * 4f, 1f) < 0.5f) a *= 0.35f;
+            // Calm (16 Nov, "overstimulating"): faint and steady, only a slow fade-pulse in the last seconds
+            float a = 0.16f;
+            if (powers.DevourLeft < powers.devourWarning) a *= 0.6f + 0.4f * Mathf.Sin(Time.time * 5f);
             var c = PowerUp.ColorFor(PowerUpType.Devour);
             GUI.color = new Color(c.r, c.g, c.b, a);
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), edgeGlow);
@@ -210,7 +212,7 @@ namespace Nexus
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++)
                 {
-                    float dx = Mathf.Min(x, W - 1 - x) / (W * 0.16f), dy = Mathf.Min(y, H - 1 - y) / (H * 0.2f);
+                    float dx = Mathf.Min(x, W - 1 - x) / (W * 0.08f), dy = Mathf.Min(y, H - 1 - y) / (H * 0.1f);
                     float a = 1f - Mathf.Clamp01(Mathf.Min(dx, dy));
                     tex.SetPixel(x, y, new Color(1f, 1f, 1f, a * a));
                 }
@@ -218,46 +220,82 @@ namespace Nexus
             return tex;
         }
 
-        /// <summary>Active power-ups under the status panel: name, time bar (or "1 HIT" for the shield).</summary>
-        void DrawPowerStatus(Vector2 origin)
+        Texture2D dotTex;
+        GUIStyle legendDim;
+
+        /// <summary>
+        /// Fruit legend under the status panel (16 Nov): every power-up fruit with what it does.
+        /// Inactive rows are dim; an active one lights up and shows its time left (Plum shows READY until used).
+        /// </summary>
+        void DrawPowerLegend(Vector2 origin)
         {
             var powers = PlayerPowers.Instance;
             if (powers == null) return;
             if (powerName == null)
+                powerName = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
+            if (legendDim == null)
+                legendDim = new GUIStyle(GUI.skin.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+            if (dotTex == null) dotTex = MakeDot();
+
+            const float rowH = 22f;
+            var types = new[] { PowerUpType.Devour, PowerUpType.SpeedBurst, PowerUpType.Shield, PowerUpType.Magnet };
+            var panel = new Rect(origin.x, origin.y, 250f, 24f + types.Length * rowH + 6f);
+            DrawPanel(panel, 0.8f);
+            GUI.Label(new Rect(panel.x + 12f, panel.y + 4f, 200f, 18f), "POWER FRUITS", tinyLeft);
+
+            float y = panel.y + 24f;
+            foreach (var type in types)
             {
-                powerName = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-            }
-            float y = origin.y;
-            void Row(PowerUpType type, float left, float total, string extra)
-            {
-                var r = new Rect(origin.x, y, 250f, 30f);
-                var c = PowerUp.ColorFor(type);
-                GUI.color = new Color(0.03f, 0.05f, 0.11f, 0.85f);
-                GUI.DrawTexture(r, Texture2D.whiteTexture);
-                bool ending = total > 0f && left < 2f && Mathf.Repeat(Time.time * 4f, 1f) < 0.5f;
-                GUI.color = ending ? Color.white : c;
-                GUI.DrawTexture(new Rect(r.x, r.y, 4f, r.height), Texture2D.whiteTexture);
-                powerName.normal.textColor = GUI.color;
-                GUI.color = Color.white;
-                GUI.Label(new Rect(r.x + 12f, r.y + 2f, 140f, 18f), PowerUp.NameFor(type), powerName);
-                if (total > 0f)
+                float left = 0f, total = 0f;
+                bool active;
+                switch (type)
                 {
-                    var bar = new Rect(r.x + 12f, r.y + 21f, 226f, 4f);
-                    GUI.color = new Color(1f, 1f, 1f, 0.15f);
-                    GUI.DrawTexture(bar, Texture2D.whiteTexture);
-                    GUI.color = c;
-                    GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(left / total), bar.height), Texture2D.whiteTexture);
-                    GUI.color = Color.white;
-                    GUI.Label(new Rect(r.xMax - 60f, r.y + 2f, 50f, 18f), left.ToString("0.0") + "s", powerName);
+                    case PowerUpType.Devour: left = powers.DevourLeft; total = powers.devourTime; active = left > 0f; break;
+                    case PowerUpType.SpeedBurst: left = powers.SpeedLeft; total = powers.speedTime; active = left > 0f; break;
+                    case PowerUpType.Magnet: left = powers.MagnetLeft; total = powers.magnetTime; active = left > 0f; break;
+                    default: active = powers.HasShield; break;
                 }
-                else GUI.Label(new Rect(r.xMax - 70f, r.y + 2f, 64f, 18f), extra, powerName);
-                y += 34f;
+                var c = PowerUp.ColorFor(type);
+                float a = active ? 1f : 0.55f;
+                bool ending = active && total > 0f && left < 2f;
+                if (ending) a = 0.55f + 0.45f * Mathf.Sin(Time.time * 6f);
+
+                GUI.color = new Color(c.r, c.g, c.b, a);
+                GUI.DrawTexture(new Rect(panel.x + 12f, y + 3f, 12f, 12f), dotTex);
+                powerName.normal.textColor = new Color(c.r, c.g, c.b, a);
+                GUI.color = Color.white;
+                GUI.Label(new Rect(panel.x + 30f, y, 70f, 18f), PowerUp.FruitFor(type), powerName);
+                legendDim.normal.textColor = new Color(0.85f, 0.9f, 1f, active ? 0.95f : 0.5f);
+                GUI.Label(new Rect(panel.x + 98f, y, 100f, 18f), PowerUp.EffectFor(type), legendDim);
+
+                if (active)
+                {
+                    string right = total > 0f ? left.ToString("0.0") + "s" : "READY";
+                    GUI.Label(new Rect(panel.xMax - 52f, y, 46f, 18f), right, powerName);
+                    if (total > 0f)
+                    {
+                        GUI.color = new Color(c.r, c.g, c.b, 0.8f);
+                        GUI.DrawTexture(new Rect(panel.x + 30f, y + 18f, (panel.width - 42f) * Mathf.Clamp01(left / total), 2f), Texture2D.whiteTexture);
+                        GUI.color = Color.white;
+                    }
+                }
+                y += rowH;
             }
-            if (powers.DevourActive) Row(PowerUpType.Devour, powers.DevourLeft, powers.devourTime, null);
-            if (powers.SpeedLeft > 0f) Row(PowerUpType.SpeedBurst, powers.SpeedLeft, powers.speedTime, null);
-            if (powers.MagnetLeft > 0f) Row(PowerUpType.Magnet, powers.MagnetLeft, powers.magnetTime, null);
-            if (powers.HasShield) Row(PowerUpType.Shield, 0f, 0f, "1 HIT");
             GUI.color = Color.white;
+        }
+
+        static Texture2D MakeDot()
+        {
+            const int size = 24;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float r = new Vector2(x - size / 2f + 0.5f, y - size / 2f + 0.5f).magnitude;
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01(size / 2f - r)));
+                }
+            tex.Apply();
+            return tex;
         }
 
         void DrawPopups()
@@ -366,7 +404,7 @@ namespace Nexus
             lastLives = gm.Lives;
 
             int slots = Mathf.Max(gm.startLives, gm.Lives);
-            const float w = 26f, h = 30f, gap = 8f;
+            const float w = 18f, h = 21f, gap = 5f;   // small (16 Nov: were 26x30)
             float t = Time.time;
             var old = GUI.color;
             for (int i = 0; i < slots; i++)
@@ -403,7 +441,7 @@ namespace Nexus
                 }
             }
             GUI.color = new Color(Accent.r, Accent.g, Accent.b, 0.8f);
-            GUI.Label(new Rect(origin.x + slots * (w + gap) + 4f, origin.y + 4f, 120f, 22f), "LIFE CORES", tinyLeft);
+            GUI.Label(new Rect(origin.x + slots * (w + gap) + 4f, origin.y, 120f, h), "LIFE CORES", tinyLeft);
             GUI.color = old;
         }
 

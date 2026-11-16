@@ -12,6 +12,9 @@ namespace Nexus
     /// </summary>
     public class PauseMenu : MonoBehaviour
     {
+        // FPS: no GUILayout here, so skip IMGUI's extra Layout pass
+        void Awake() => useGUILayout = false;
+
         public static bool Paused { get; private set; }
 
         static readonly string[] Items = { "RESUME", "RESTART REGION", "QUIT GAME" };

@@ -20,6 +20,8 @@ namespace Nexus
         public float turnSpeed = 720f;
         [Tooltip("How long a pressed turn is remembered before the next opening (seconds)")]
         public float turnBufferSeconds = 2.5f;
+        [Tooltip("Sideways press on a 2-wide street steps into the other lane (off: the press waits for the next junction)")]
+        public bool allowLaneChange = false;
 
         public Vector2Int CurrentCell => cell;
         public Vector2Int Direction => dir;
@@ -210,6 +212,9 @@ namespace Nexus
         /// </summary>
         bool IsLaneChange()
         {
+            // Off by default (16 Nov): on Level 2's 2-wide streets an early turn press made Pac-Man hop into the
+            // other lane and then forget the turn ("involuntary movement"). Now the press waits for the real junction.
+            if (!allowLaneChange) return false;
             if (dir == Vector2Int.zero || queued == dir || queued == -dir || queued == Vector2Int.zero) return false;
             var side = cell + queued;
             return level.IsWalkable(side) && !level.IsWalkable(side + queued) && level.IsWalkable(side + dir);

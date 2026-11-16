@@ -35,7 +35,7 @@ namespace Nexus
             var glow = Visuals.GetMaterial(Visuals.Hex("#FF9A3C"), Visuals.Hex("#FF9A3C"), 2f);
             Color[] nightGlow = { Visuals.Hex("#FF2BD6"), Visuals.Cyan, Visuals.Hex("#8A5CFF") };
 
-            for (int i = 0; i < (night ? 20 : 16); i++)
+            for (int i = 0; i < (night ? 10 : 16); i++)   // Level 1: fewer hover cars (16 Nov, was 20)
             {
                 if (night) glow = Visuals.GetMaterial(nightGlow[i % 3], nightGlow[i % 3], 2.6f);
                 bool alongX = i % 2 == 0;

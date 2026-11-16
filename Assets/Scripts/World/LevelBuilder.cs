@@ -248,6 +248,18 @@ namespace Nexus
             return city;
         }
 
+        static Mesh orbMesh;
+
+        /// <summary>One small icosphere (radius 0.5, like Unity's sphere) shared by every Energy Orb.</summary>
+        static Mesh OrbMesh()
+        {
+            if (orbMesh != null) return orbMesh;
+            var mb = new MeshBuilder();
+            mb.Icosahedron(Vector3.zero, 0.5f, 1, false);
+            orbMesh = mb.ToMesh("OrbLowPoly");
+            return orbMesh;
+        }
+
         void AddCollectible(Vector2Int cell, Collectible.Kind kind, Transform parent)
         {
             GameObject go;
@@ -263,9 +275,12 @@ namespace Nexus
                 go.transform.position = CellToWorld(cell);
                 if (kind == Collectible.Kind.Orb)
                 {
-                    // Shared material (one for all orbs), bright enough for bloom to make it glow
-                    Visuals.Shape(PrimitiveType.Sphere, "Visual", go.transform, new Vector3(0, 0.45f, 0),
-                        Vector3.one * 0.18f, Visuals.GetMaterial(Visuals.Cyan, Visuals.Cyan, 2.8f));
+                    // Shared material (one for all orbs), bright enough for bloom to make it glow.
+                    // FPS: shared low-poly sphere (80 triangles instead of Unity's 768; ~300 orbs per level)
+                    var orb = Visuals.MeshPart("Visual", go.transform, OrbMesh(),
+                        Visuals.GetMaterial(Visuals.Cyan, Visuals.Cyan, 2.8f));
+                    orb.transform.localPosition = new Vector3(0, 0.45f, 0);
+                    orb.transform.localScale = Vector3.one * 0.18f;
                 }
                 else
                 {
@@ -336,13 +351,13 @@ namespace Nexus
                         bool v = IsWalkable(c + Vector2Int.up) || IsWalkable(c + Vector2Int.down);
                         if (h && v) crossings.Add(c);
                     }
+                // Rare on purpose (16 Nov: was 9, felt too busy): 2 Apples (Devour) + one of each other fruit
                 var wanted = new (float, float, PowerUpType)[]
                 {
-                    (0.18f, 0.18f, PowerUpType.Devour), (0.82f, 0.18f, PowerUpType.Devour),
-                    (0.18f, 0.80f, PowerUpType.Devour), (0.82f, 0.80f, PowerUpType.Devour),
-                    (0.50f, 0.12f, PowerUpType.SpeedBurst), (0.35f, 0.92f, PowerUpType.SpeedBurst),
-                    (0.10f, 0.50f, PowerUpType.Shield), (0.90f, 0.50f, PowerUpType.Shield),
-                    (0.62f, 0.35f, PowerUpType.Magnet),
+                    (0.18f, 0.18f, PowerUpType.Devour), (0.82f, 0.80f, PowerUpType.Devour),
+                    (0.80f, 0.15f, PowerUpType.SpeedBurst),
+                    (0.15f, 0.75f, PowerUpType.Shield),
+                    (0.55f, 0.45f, PowerUpType.Magnet),
                 };
                 foreach (var (fx, fy, type) in wanted)
                 {
@@ -353,7 +368,7 @@ namespace Nexus
                     {
                         bool tooClose = false;
                         foreach (var (pc, _) in placed)
-                            if (Mathf.Abs(pc.x - c.x) + Mathf.Abs(pc.y - c.y) < 5) { tooClose = true; break; }
+                            if (Mathf.Abs(pc.x - c.x) + Mathf.Abs(pc.y - c.y) < 8) { tooClose = true; break; }
                         if (tooClose) continue;
                         float d = (new Vector2(c.x, c.y) - goal).sqrMagnitude;
                         if (d < bestD) { bestD = d; best = c; }

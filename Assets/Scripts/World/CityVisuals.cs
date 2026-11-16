@@ -107,7 +107,7 @@ namespace Nexus
                 else if (cell.y == 0) prefab = Pick(kenneyTall, rng);
                 else if (level.IsWalkable(cell + Dirs[0])) prefab = Pick(kenneyLow, rng);
                 else prefab = Pick(kenneyMid, rng);
-                h = PlaceKenney(prefab, root, size, rng);
+                h = PlaceKenney(prefab, root, size, rng, filler ? kenneyNightFar : kenneyNight);
             }
             else
             {
@@ -125,7 +125,7 @@ namespace Nexus
             foreach (var d in Dirs)
             {
                 bool facesStreet = level.IsWalkable(cell + d);
-                if (!facesStreet && !(filler && rng.NextDouble() < 0.3)) continue;
+                if (!facesStreet && !(filler && rng.NextDouble() < 0.12)) continue;   // calmer skyline (16 Nov, was 0.3)
 
                 Vector3 w = ToWorld(d);
                 Vector3 absW = new Vector3(Mathf.Abs(w.x), 0f, Mathf.Abs(w.z));
@@ -135,13 +135,13 @@ namespace Nexus
                 Visuals.Shape(PrimitiveType.Cube, "NeonRim", root,
                     w * (size / 2f) + Vector3.up * (h + 0.07f),
                     along * size + absW * 0.04f + Vector3.up * 0.04f,
-                    Visuals.GetMaterial(rimColor, rimColor, Sky ? 1.1f : 1.6f));
+                    Visuals.GetMaterial(rimColor, rimColor, Sky ? 1.1f : 0.95f));   // Level 1 calmer (16 Nov, was 1.6)
 
                 // Signs only on facades the camera can see (not the far side)
                 if (d == Dirs[0] || h < 1.8f) continue;
                 Vector3 facade = root.position + w * (size / 2f);
                 double roll = rng.NextDouble();
-                if (roll < 0.4 && !Sky)
+                if (roll < 0.22 && !Sky)   // fewer signs (16 Nov, was 0.4)
                 {
                     // Vertical neon sign
                     Color sc = PickSignColor(rng);
@@ -151,10 +151,10 @@ namespace Nexus
                     Visuals.Shape(PrimitiveType.Cube, "NeonSign", root,
                         w * (size / 2f + 0.03f) + along * sx + Vector3.up * sy,
                         along * 0.1f + absW * 0.04f + Vector3.up * sh,
-                        Visuals.GetMaterial(sc, sc, 3f));
+                        Visuals.GetMaterial(sc, sc, 1.8f));
                     if (!filler) AddNeonGlow(facade + along * sx, w, sc, sy, rng.NextDouble() < 0.5, 0.5f);
                 }
-                else if (roll < 0.62 && h >= 2.2f)
+                else if (roll < 0.4 && h >= 2.2f)
                 {
                     // Billboard: dark frame with a glowing ad
                     int variant = rng.Next(BillboardColors.Length);
@@ -170,13 +170,18 @@ namespace Nexus
                     if (!filler) AddNeonGlow(facade, w, BillboardColors[variant], by, true, bw);
                 }
             }
+
+            // FPS (16 Nov): only the building body casts a shadow. Roofs, neon rims and signs are thin details;
+            // their shadows were invisible but doubled Level 2's draw calls (sun shadows).
+            foreach (var r in root.GetComponentsInChildren<Renderer>())
+                if (r.name != "Body" && !r.name.StartsWith("Kenney")) r.shadowCastingMode = ShadowCastingMode.Off;
         }
 
         // ---------- Kenney City Kit (Neon District) ----------
 
         static bool kenneyTried;
         static GameObject[] kenneyLow, kenneyMid, kenneyTall, kenneyFill;
-        static Material kenneyNight;
+        static Material kenneyNight, kenneyNightFar;
         static readonly Dictionary<GameObject, Bounds> kenneyBounds = new Dictionary<GameObject, Bounds>();
 
         /// <summary>Loads the Kenney models (Assets/ThirdParty/Resources/KenneyCity) and the night material once.</summary>
@@ -213,12 +218,15 @@ namespace Nexus
             {
                 m.EnableKeyword("_EMISSION");
                 m.SetTexture("_EmissionMap", glow);
-                m.SetColor("_EmissionColor", Color.white * 1.8f);
+                m.SetColor("_EmissionColor", Color.white * 1.25f);   // calmer windows (16 Nov, was 1.8)
                 m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
             }
             m.SetFloat("_Smoothness", 0.45f);
             m.SetFloat("_Metallic", 0.1f);
             kenneyNight = m;
+            // Skyline band around the maze: dimmer windows, so the playable streets stand out
+            kenneyNightFar = new Material(m) { name = "KenneyNightFar" };
+            if (glow != null) kenneyNightFar.SetColor("_EmissionColor", Color.white * 0.55f);
             return true;
         }
 
@@ -244,7 +252,7 @@ namespace Nexus
         }
 
         /// <summary>Places a Kenney model in the cell (scaled to the cell footprint, random 90 degree turn). Returns its height.</summary>
-        static float PlaceKenney(GameObject prefab, Transform root, float footprint, System.Random rng)
+        static float PlaceKenney(GameObject prefab, Transform root, float footprint, System.Random rng, Material mat)
         {
             var b = KenneyBounds(prefab);
             float s = footprint / Mathf.Max(0.01f, Mathf.Max(b.size.x, b.size.z));
@@ -258,7 +266,7 @@ namespace Nexus
             foreach (var r in inst.GetComponentsInChildren<Renderer>())
             {
                 var mats = new Material[r.sharedMaterials.Length];
-                for (int i = 0; i < mats.Length; i++) mats[i] = kenneyNight;
+                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
                 r.sharedMaterials = mats;
             }
             foreach (var col in inst.GetComponentsInChildren<Collider>()) Object.Destroy(col);
@@ -281,13 +289,13 @@ namespace Nexus
                 light.type = LightType.Point;
                 light.color = color;
                 light.range = 2.6f;
-                light.intensity = 1.6f;
+                light.intensity = 1.1f;
                 light.shadows = LightShadows.None;
             }
 
             if (reflectionMask == null) reflectionMask = Visuals.GradientTexture(true);
             if (!reflectionCache.TryGetValue(color, out var mat) || mat == null)
-                reflectionCache[color] = mat = Visuals.Glow(color, 0.45f, 0f, reflectionMask, true);
+                reflectionCache[color] = mat = Visuals.Glow(color, 0.3f, 0f, reflectionMask, true);
             var glow = Visuals.Shape(PrimitiveType.Quad, "StreetReflection", neonRoot, Vector3.zero, Vector3.one, mat);
             glow.transform.position = facade + outward * 0.4f + Vector3.up * 0.02f;
             // Lying flat on the street, its local X runs along the facade
@@ -325,8 +333,8 @@ namespace Nexus
         /// Called once after the whole level is built (FPS fix, 12 Nov):
         ///  - City (skyline band around the maze, never faded): every building is merged into a few big meshes,
         ///    one per material and per 10x10-cell chunk (was ~1300 separate renderers: the main cost in Level 1).
-        ///  - Walls (maze buildings, faded by BuildingFader): static batching. Every building keeps its own renderers,
-        ///    so fading still works, but they share combined vertex buffers and draw much cheaper.
+        ///  - Walls (maze buildings, faded by BuildingFader): merged into 8x8-cell chunks by BuildingFader (16 Nov);
+        ///    a building that fades is taken out of its chunk and drawn on its own until it is solid again.
         /// Meshes that are not readable are left as they are (Kenney models are imported with Read/Write on).
         /// </summary>
         public static void Optimize(Transform walls, Transform city, float cellSize)
@@ -374,7 +382,7 @@ namespace Nexus
             // Hide at once (Destroy only happens at the end of the frame), so nothing is drawn twice
             foreach (var go in merged) { go.SetActive(false); Object.Destroy(go); }
 
-            StaticBatchingUtility.Combine(walls.gameObject);
+            // Walls: no static batching (it makes the meshes unreadable); BuildingFader merges them into chunks instead.
         }
 
         // ---------- Streets ----------
@@ -497,8 +505,8 @@ namespace Nexus
             // Post effects on a runtime volume with a higher priority than the scene's volume
             var profile = ScriptableObject.CreateInstance<VolumeProfile>();
             var bloom = profile.Add<Bloom>(true);
-            bloom.intensity.value = Sky ? 0.8f : 0.95f;   // Level 1 calmer (user: "a bit overwhelming")
-            bloom.threshold.value = Sky ? 1.15f : 0.95f;
+            bloom.intensity.value = Sky ? 0.8f : 0.75f;   // Level 1 calmer (user: "a bit overwhelming", again 16 Nov)
+            bloom.threshold.value = Sky ? 1.15f : 1.05f;
             bloom.scatter.value = 0.75f;
             var color = profile.Add<ColorAdjustments>(true);
             color.postExposure.value = 0.15f;
@@ -532,6 +540,9 @@ namespace Nexus
 
         static Material FacadeMaterial(float height, int variant)
         {
+            // FPS (16 Nov): Skyline towers are 6-21 units tall; whole-unit window tiling (a few % stretch, not visible)
+            // means far fewer materials, so BuildingFader's merged chunks need far fewer draw calls.
+            if (Sky) height = Mathf.Max(1f, Mathf.Round(height));
             int key = (Mathf.RoundToInt(height * 4f) * 8 + variant) * 2 + (Sky ? 1 : 0);
             if (facadeCache.TryGetValue(key, out var m) && m != null) return m;
             EnsureWindowTextures();

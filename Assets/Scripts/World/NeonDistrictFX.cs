@@ -177,8 +177,8 @@ namespace Nexus
             if (beaconRings != null)
                 for (int i = 0; i < beaconRings.Length; i++)
                 {
-                    beaconRings[i].localRotation = Quaternion.Euler(Mathf.Sin(t * 0.7f + i) * 8f, t * (i % 2 == 0 ? 30f : -45f), Mathf.Cos(t * 0.6f + i) * 8f);
-                    beaconMats[i].SetFloat("_Intensity", 1.1f + 0.7f * Mathf.Max(0f, Mathf.Sin(t * 2.2f - i * 1.1f)));
+                    beaconRings[i].localRotation = Quaternion.Euler(Mathf.Sin(t * 0.5f + i) * 5f, t * (i % 2 == 0 ? 15f : -20f), Mathf.Cos(t * 0.4f + i) * 5f);
+                    beaconMats[i].SetFloat("_Intensity", 0.9f + 0.2f * Mathf.Sin(t * 1.2f - i * 1.1f));
                 }
 
             // Animated ads: slow sideways scroll, with a short flicker now and then
@@ -187,10 +187,10 @@ namespace Nexus
             {
                 if (m == null) continue;
                 n++;
-                float speed = 0.06f + 0.03f * (n % 3);
+                float speed = 0.025f + 0.01f * (n % 3);
                 m.SetVector(BaseMapST, new Vector4(1f, 1f, Mathf.Repeat(t * speed * (n % 2 == 0 ? 1f : -1f), 1f), 0f));
-                bool flicker = Mathf.PerlinNoise(t * 3f, n * 7.3f) < 0.18f;
-                m.SetColor("_EmissionColor", Color.white * (flicker ? 0.5f : 2.2f));
+                // Calm (16 Nov): steady glow, no flicker
+                m.SetColor("_EmissionColor", Color.white * 1.3f);
             }
         }
 

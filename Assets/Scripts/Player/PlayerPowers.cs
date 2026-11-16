@@ -211,16 +211,16 @@ namespace Nexus
                     magnetMat.SetFloat("_Intensity", ending ? 0.15f : 0.55f + Mathf.Sin(t * 5f) * 0.15f);
                 }
             }
-            // Devour: Pac-Man glows hot, slightly bigger, and his light turns magenta-white and pulses
+            // Devour: Pac-Man a little bigger with a soft magenta-white light (calm, 16 Nov: no fast flicker)
             bool devour = DevourActive;
-            if (body != null) body.localScale = Vector3.one * (devour ? 1.15f + Mathf.Sin(t * 10f) * 0.03f : 1f);
+            if (body != null) body.localScale = Vector3.one * (devour ? 1.08f : 1f);
             if (glow != null)
             {
                 if (devour)
                 {
-                    glow.color = Color.Lerp(PowerUp.ColorFor(PowerUpType.Devour), Color.white, 0.3f + 0.3f * Mathf.Sin(t * 8f));
-                    glow.intensity = glowIntensity * 1.8f;
-                    glow.range = glowRange * 1.6f;
+                    glow.color = Color.Lerp(PowerUp.ColorFor(PowerUpType.Devour), Color.white, 0.45f + 0.1f * Mathf.Sin(t * 2f));
+                    glow.intensity = glowIntensity * 1.2f;
+                    glow.range = glowRange * 1.15f;
                 }
                 else if (glow.color != glowColor)
                 {
