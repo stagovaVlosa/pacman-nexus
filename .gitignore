@@ -25,3 +25,6 @@ Thumbs.db
 # Screenshots captured from the editor
 [Aa]ssets/[Ss]creenshots/
 [Aa]ssets/[Ss]creenshots.meta
+
+# Claude Code instructions (local only)
+CLAUDE.md
