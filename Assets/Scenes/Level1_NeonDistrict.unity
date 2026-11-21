@@ -489,6 +489,7 @@ MonoBehaviour:
   cellSize: 1
   wallHeight: 1.2
   skylineBand: 3
+  realisticLook: 1
   wallPrefab: {fileID: 0}
   orbPrefab: {fileID: 0}
   corePrefab: {fileID: 0}

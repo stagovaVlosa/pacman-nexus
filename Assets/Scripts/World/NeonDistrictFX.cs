@@ -30,7 +30,8 @@ namespace Nexus
             fx.CreateRain();
             CreatePuddlesAndSteam(level, root.transform);
             CreateCrossings(level, root.transform);
-            fx.CreateBeacon(level);
+            // Realistic look (21 Nov): no neon holo rings over the plaza, they clashed with the realistic city
+            if (!RealisticCity.Active) fx.CreateBeacon(level);
             var traffic = new GameObject("NightTraffic").AddComponent<FlyingTraffic>();
             traffic.transform.SetParent(root.transform, false);
             traffic.Setup(level, level.skylineBand, true);
@@ -68,7 +69,10 @@ namespace Nexus
                         }
                     }
                 }
-            var mat = Visuals.GetMaterial(Visuals.Hex("#C9D6FF"), Visuals.Hex("#8FB0FF"), 0.35f);
+            // Realistic look: plain white road paint instead of a blue glow
+            var mat = RealisticCity.Active
+                ? Visuals.Lit(Visuals.Hex("#D8D8D0"), 0f, 0.55f, Visuals.Hex("#FFFFFF"), 0.3f)
+                : Visuals.GetMaterial(Visuals.Hex("#C9D6FF"), Visuals.Hex("#8FB0FF"), 0.35f);
             Visuals.MeshPart("ZebraCrossings", parent, mb.ToMesh("ZebraCrossings"), mat);
         }
 
@@ -213,7 +217,7 @@ namespace Nexus
                     double roll = rng.NextDouble();
                     var pos = level.CellToWorld(c);
 
-                    if (roll < 0.11)
+                    if (roll < 0.11 && !RealisticCity.Active)   // realistic look: the asphalt texture has its own wet patches
                     {
                         // Puddle: flat dark disc, slightly off-centre, not perfectly round
                         float d = 0.45f + (float)rng.NextDouble() * 0.45f;

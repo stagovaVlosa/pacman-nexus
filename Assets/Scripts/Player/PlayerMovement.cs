@@ -20,8 +20,8 @@ namespace Nexus
         public float turnSpeed = 720f;
         [Tooltip("How long a pressed turn is remembered before the next opening (seconds)")]
         public float turnBufferSeconds = 2.5f;
-        [Tooltip("Sideways press on a 2-wide street steps into the other lane (off: the press waits for the next junction)")]
-        public bool allowLaneChange = false;
+        // Lane change (17 Nov): a sideways press on a 2-wide street steps into the other lane AND the turn stays
+        // remembered for the next real junction. Always on (no inspector toggle, so an old scene value cannot switch it off).
 
         public Vector2Int CurrentCell => cell;
         public Vector2Int Direction => dir;
@@ -33,6 +33,7 @@ namespace Nexus
 
         LevelBuilder level;
         Vector2Int cell, target, dir, queued, start;
+        Vector2Int laneReturn;   // direction to continue in after a one-cell lane-change step (zero = none)
         float queuedAt;          // Time.time when the queued turn was pressed
         bool queuedNoExpiry;     // set by SetQueuedDirection (Autopilot test): never expires
 
@@ -50,7 +51,7 @@ namespace Nexus
             level = builder;
             this.start = start;
             cell = target = start;
-            dir = queued = Vector2Int.zero;
+            dir = queued = laneReturn = Vector2Int.zero;
             transform.position = level.CellToWorld(start, floatHeight);
             body = transform.Find("Body");
         }
@@ -67,7 +68,7 @@ namespace Nexus
         public void Respawn()
         {
             cell = target = start;
-            dir = queued = Vector2Int.zero;
+            dir = queued = laneReturn = Vector2Int.zero;
             queuedNoExpiry = false;
             HasStarted = false;
             transform.position = level.CellToWorld(start, floatHeight);
@@ -175,17 +176,21 @@ namespace Nexus
 
         void PickNextTarget()
         {
-            if (queued != Vector2Int.zero && level.IsWalkable(cell + queued) && ShouldTakeTurn())
+            // Just finished a lane-change step: continue the way he was going before.
+            // The sideways turn stays queued, so it is taken at the next real junction (within the turn buffer).
+            if (laneReturn != Vector2Int.zero)
+            {
+                if (level.IsWalkable(cell + laneReturn) && laneReturn != -dir) dir = laneReturn;
+                laneReturn = Vector2Int.zero;
+            }
+
+            if (queued != Vector2Int.zero && queued != dir && level.IsWalkable(cell + queued) && ShouldTakeTurn())
             {
                 var previous = dir;
-                bool laneChange = IsLaneChange();
+                bool laneChange = !queuedNoExpiry && IsLaneChange();
                 dir = queued;
-                // Lane change on a 2-wide street: step across, then keep going the way he was going
-                if (laneChange && !queuedNoExpiry)
-                {
-                    queued = previous;
-                    queuedAt = Time.time;
-                }
+                // Lane change on a 2-wide street: step across one cell, then keep going the way he was going
+                if (laneChange) laneReturn = previous;
             }
             if (dir != Vector2Int.zero && level.IsWalkable(cell + dir)) target = cell + dir;
             else target = cell; // blocked: stop and wait for a new direction
@@ -212,9 +217,8 @@ namespace Nexus
         /// </summary>
         bool IsLaneChange()
         {
-            // Off by default (16 Nov): on Level 2's 2-wide streets an early turn press made Pac-Man hop into the
-            // other lane and then forget the turn ("involuntary movement"). Now the press waits for the real junction.
-            if (!allowLaneChange) return false;
+            // 16 Nov this was switched off because the hop made Pac-Man forget the turn. Since 17 Nov the turn stays
+            // queued after the hop (see laneReturn in PickNextTarget), so both work: lane change + turn at the junction.
             if (dir == Vector2Int.zero || queued == dir || queued == -dir || queued == Vector2Int.zero) return false;
             var side = cell + queued;
             return level.IsWalkable(side) && !level.IsWalkable(side + queued) && level.IsWalkable(side + dir);

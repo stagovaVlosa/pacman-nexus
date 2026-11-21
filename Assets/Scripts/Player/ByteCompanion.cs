@@ -142,6 +142,12 @@ namespace Nexus
         void LateUpdate()
         {
             if (target == null) return;
+            // 21 Nov (user): BYTE following Pac-Man during play was confusing. Realistic look: BYTE is only a voice
+            // in the dialogue box while playing (the model stays hidden).
+            bool hidden = RealisticCity.Active && !IntroSequence.Active;
+            if (model.gameObject.activeSelf == hidden) model.gameObject.SetActive(!hidden);
+            if (glow.enabled == hidden) glow.enabled = !hidden;
+            if (hidden) return;
             float dt = Time.deltaTime;
             t += dt;
 
@@ -188,19 +194,28 @@ namespace Nexus
                 nameStyle.normal.textColor = Visuals.Cyan;
                 textStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, alignment = TextAnchor.MiddleLeft };
                 textStyle.normal.textColor = Color.white;
+                if (RealisticCity.Active && GameHUD.HudFont != null) { nameStyle.font = GameHUD.HudFont; textStyle.font = GameHUD.HudFont; }
             }
 
             // Fade in, and fade out at the end (lines that never end just stay)
             float alpha = Mathf.Clamp01((Time.time - lineStart) / 0.25f);
             if (!float.IsInfinity(lineUntil)) alpha = Mathf.Min(alpha, Mathf.Clamp01((lineUntil - Time.time) / 0.4f));
 
-            var r = new Rect((Screen.width - 520f) / 2f, Screen.height - 132f, 520f, 46f);
+            // Realistic look: same size rules as the clean HUD (designed for 1080p, scaled with the screen)
+            var savedMatrix = GUI.matrix;
+            float k = RealisticCity.Active ? GameHUD.UiScale : 1f;
+            if (RealisticCity.Active) GUI.matrix = Matrix4x4.Scale(new Vector3(k, k, 1f));
+            float vw = Screen.width / k, vh = Screen.height / k;
+            var r = RealisticCity.Active
+                ? new Rect((vw - 560f) / 2f, vh - 150f, 560f, 42f)
+                : new Rect((Screen.width - 520f) / 2f, Screen.height - 132f, 520f, 46f);
             GameHUD.DrawPanel(r, alpha);
             var old = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
             GUI.Label(new Rect(r.x + 14f, r.y, 70f, r.height), "BYTE", nameStyle);
             GUI.Label(new Rect(r.x + 74f, r.y, r.width - 88f, r.height), line, textStyle);
             GUI.color = old;
+            GUI.matrix = savedMatrix;
         }
     }
 }

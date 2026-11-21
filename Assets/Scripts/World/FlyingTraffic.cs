@@ -33,7 +33,10 @@ namespace Nexus
             var head = Visuals.GetMaterial(Color.white, Visuals.Hex("#FFF4DC"), 3f);
             var tail = Visuals.GetMaterial(Visuals.CorruptedRed, Visuals.CorruptedRed, 2.5f);
             var glow = Visuals.GetMaterial(Visuals.Hex("#FF9A3C"), Visuals.Hex("#FF9A3C"), 2f);
-            Color[] nightGlow = { Visuals.Hex("#FF2BD6"), Visuals.Cyan, Visuals.Hex("#8A5CFF") };
+            // Realistic look (21 Nov): red tail lights instead of pink/cyan/violet neon streaks
+            Color[] nightGlow = RealisticCity.Active
+                ? new[] { Visuals.Hex("#FF2A1A"), Visuals.Hex("#E01818"), Visuals.Hex("#FF4A2A") }
+                : new[] { Visuals.Hex("#FF2BD6"), Visuals.Cyan, Visuals.Hex("#8A5CFF") };
 
             for (int i = 0; i < (night ? 10 : 16); i++)   // Level 1: fewer hover cars (16 Nov, was 20)
             {

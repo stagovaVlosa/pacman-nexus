@@ -18,7 +18,7 @@ namespace Nexus
     /// Level 2+ (StartLevelCard): no lab, only the title card over the orbiting city with BYTE's story lines
     /// for that level (GDD story events), then the same swoop down to Pac-Man.
     /// </summary>
-    public class IntroSequence : MonoBehaviour
+    public partial class IntroSequence : MonoBehaviour
     {
         // FPS: no GUILayout here, so skip IMGUI's extra Layout pass
         void Awake() => useGUILayout = false;
@@ -139,6 +139,7 @@ namespace Nexus
                 || (mouse != null && mouse.leftButton.wasPressedThisFrame))
                 advance = true;
             flash = Mathf.Max(0f, flash - Time.deltaTime * 2.5f);
+            glitch = Mathf.Max(0f, glitch - Time.deltaTime * 2.2f);
         }
 
         IEnumerator Run()
@@ -157,6 +158,16 @@ namespace Nexus
             startPos = player.position; startRot = player.rotation; startScale = player.localScale;
             savedFog = RenderSettings.fogDensity;
             RenderSettings.fogDensity = 0.012f;
+
+            // Realistic look (21 Nov): the Blur-style intro (IntroSequence.Blur.cs); the old one below stays for other looks
+            if (RealisticCity.Active)
+            {
+                blurMode = true;
+                if (byteGo != null && cardMode) byteGo.SetActive(true);
+                yield return cardMode ? BlurLevelCard() : BlurRun();
+                Finish();
+                yield break;
+            }
 
             if (cardMode)
             {
@@ -356,6 +367,7 @@ namespace Nexus
 
         void Finish()
         {
+            if (blurMode) BlurCleanup();
             RenderSettings.fogDensity = savedFog;
             if (follow != null)
             {
@@ -564,6 +576,7 @@ namespace Nexus
         {
             if (!Active) return;
             if (storyStyle == null) CreateStyles();
+            if (blurMode) { DrawBlur(); return; }
             float W = Screen.width, H = Screen.height;
 
             // Cinematic bars (not on the title screen)
