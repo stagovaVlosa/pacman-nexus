@@ -33,6 +33,10 @@ namespace Nexus
         [Tooltip("How many rows of background buildings surround the maze")]
         public int skylineBand = 3;
 
+        [Header("Look")]
+        [Tooltip("Realistic city (RealisticCity.cs): block-sized buildings, PBR textures, street lamps, night lighting. Off = the previous neon look (CityVisuals).")]
+        public bool realisticLook = false;
+
         [Header("Optional prefabs (leave empty = placeholder shapes)")]
         public GameObject wallPrefab;
         public GameObject orbPrefab;
@@ -73,7 +77,9 @@ namespace Nexus
                 Debug.LogError("LevelBuilder: no layout TextAsset assigned.");
                 return;
             }
-            GameHUD.Accent = CityVisuals.AccentFor(theme);
+            RealisticCity.Active = realisticLook;
+            // Realistic look: one warm accent (Pac-Man yellow) instead of the neon cyan, so the UI matches the city
+            GameHUD.Accent = realisticLook ? Visuals.Hex("#FFC93C") : CityVisuals.AccentFor(theme);
             Build(layout.text);
             // Level 2+: title card with BYTE's story lines (Level 1 has the full intro cinematic)
             if (levelNumber > 1) IntroSequence.StartLevelCard(this);
@@ -155,9 +161,13 @@ namespace Nexus
             }
 
             // Pass 2: build
-            for (int y = 0; y < Height; y++)
-                for (int x = 0; x < Width; x++)
-                    if (walls[x, y]) BuildWall(new Vector2Int(x, y), CellToWorld(new Vector2Int(x, y)), wallsRoot);
+            RealisticCity.SetSSAO(realisticLook);
+            if (realisticLook && wallPrefab == null)
+                RealisticCity.BuildMazeBuildings(this, wallsRoot);
+            else
+                for (int y = 0; y < Height; y++)
+                    for (int x = 0; x < Width; x++)
+                        if (walls[x, y]) BuildWall(new Vector2Int(x, y), CellToWorld(new Vector2Int(x, y)), wallsRoot);
 
             var blockers = new List<Vector2Int>();
             var sentinels = new List<Vector2Int>();
@@ -240,6 +250,15 @@ namespace Nexus
         {
             var city = new GameObject("City").transform;
             city.SetParent(transform, false);
+            if (realisticLook)
+            {
+                RealisticCity.BuildStreets(this, city, skylineBand);
+                RealisticCity.BuildSkyline(this, city, skylineBand);
+                CityVisuals.ApplyAtmosphere();      // base volume (kept for the HUD colours); overridden below
+                RealisticCity.ApplyAtmosphere();
+                CityVisuals.AddReflectionProbe(this, city, skylineBand);
+                return city;
+            }
             CityVisuals.BuildGround(this, city, skylineBand);
             CityVisuals.BuildStreetLines(this, city);
             CityVisuals.BuildSkyline(this, city, skylineBand);
@@ -277,10 +296,14 @@ namespace Nexus
                 {
                     // Shared material (one for all orbs), bright enough for bloom to make it glow.
                     // FPS: shared low-poly sphere (80 triangles instead of Unity's 768; ~300 orbs per level)
-                    var orb = Visuals.MeshPart("Visual", go.transform, OrbMesh(),
-                        Visuals.GetMaterial(Visuals.Cyan, Visuals.Cyan, 2.8f));
+                    // Realistic look: smaller warm pellets (classic Pac-Man pellet tone) with less glow,
+                    // so they mark the path without flooding the screen with cyan
+                    var orbMat = realisticLook
+                        ? Visuals.GetMaterial(Visuals.Hex("#FFE2B0"), Visuals.Hex("#FFD79A"), 1.5f)
+                        : Visuals.GetMaterial(Visuals.Cyan, Visuals.Cyan, 2.8f);
+                    var orb = Visuals.MeshPart("Visual", go.transform, OrbMesh(), orbMat);
                     orb.transform.localPosition = new Vector3(0, 0.45f, 0);
-                    orb.transform.localScale = Vector3.one * 0.18f;
+                    orb.transform.localScale = Vector3.one * (realisticLook ? 0.14f : 0.18f);
                 }
                 else
                 {
@@ -293,6 +316,13 @@ namespace Nexus
                     var halo = Visuals.Shape(PrimitiveType.Sphere, "Halo", visual.transform, Vector3.zero,
                         Vector3.one * 1.7f, Visuals.Glow(Visuals.NeonYellow, 1.2f, 2f));
                     halo.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    if (realisticLook)
+                    {
+                        // Objective marker: thin yellow beam rising from the core, fading upward (no street light looks like this)
+                        var beam = Visuals.Shape(PrimitiveType.Cylinder, "Beam", go.transform, new Vector3(0, 2.2f, 0),
+                            new Vector3(0.09f, 2.0f, 0.09f), Visuals.Glow(Visuals.NeonYellow, 1.1f, 0f, Visuals.GradientTexture(false), true));
+                        beam.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    }
                     var light = new GameObject("Glow").AddComponent<Light>();
                     light.transform.SetParent(go.transform, false);
                     light.transform.localPosition = new Vector3(0, 0.8f, 0);

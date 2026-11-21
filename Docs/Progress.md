@@ -186,3 +186,81 @@ Next: user plays both levels (FPS on their PC, power-up balance); then phase C (
 - Review screenshots `Assets/Screenshots/review_*.png` can be deleted.
 - Git: last commit is from 3 Nov; everything after (intro, Level 2, power-ups, pause) is NOT committed yet. The user commits + pushes.
 - Still missing: main menu (Start / Controls / Quit), sound and music, save of progress / high score (Java 10 Memory & I/O), own models for Sentinel/Hunter, levels 3-5, PBT 7 documents (architecture diagram, interface notes, code review record).
+
+## Minimap Pac-Man, bigger fruits, lane change (17 Nov, user feedback)
+- Note: several scripts were changed on 16 Nov (PlayerMovement, CityVisuals, BuildingFader, GameHUD, IntroSequence, PlayerPowers, PowerUp = "power fruits" Apple/Lime/Plum/Grapes, HUD "POWER FRUITS" legend) without an entry here.
+- User: on the minimap Pac-Man looked like the dots to collect; fruits could be bigger; on Level 2 lane change still did not work.
+- `Minimap.cs`: Pac-Man is now a real Pac-Man shape (wedge mouth, chomps, turns to his direction), 3.4 cells big, white outline and a pulsing white ring. Cores (yellow diamonds) and fruits (dots) unchanged.
+- `PowerUp.cs`: fruits 1.5x bigger (`VisualScale`), a bit higher (0.6), ground ring scaled too.
+- `PlayerMovement.cs`: on 16 Nov lane change had been switched off (`allowLaneChange = false`) because the hop made Pac-Man forget the turn. Now always on and the turn is kept: a sideways press on a 2-wide street steps into the other lane (`laneReturn` = old direction, continued after the one-cell step) and the turn stays queued for the next real junction (2.5 s buffer, longer while held). The `allowLaneChange` inspector field was removed.
+- Tests in Unity (Level 2, Bugs off): moving left in row 32, Up pressed -> stepped to row 31, kept going left, turned up at column 10. At column 20 (real street up) it turned at once. Compiles, no Nexus errors. Screenshots `Assets/Screenshots/minimap_fruit_17nov.png`, `fruit_close2_17nov.png`.
+- Not tested by Claude: the real keyboard feel. The user should try lane change on Level 2.
+- Note: recompiling during Play breaks the running game (NullReference in BugAI). Stop Play before scripts change.
+- Minimap fruits (17 Nov, later): power-ups are now small fruit pictures instead of dots (`Minimap.FruitIcon`, public, so the HUD legend can use it too): Apple magenta with leaf/stem (still blinks = Devour), Lime green oval, Plum blue tall oval with leaf, Grapes violet berries. Dark outline + white shine, 2.8 cells. Checked with screenshot on Level 1 (`Assets/Screenshots/minimap_fruits2_17nov.png`).
+- Note for testing: skipping the intro with reflection (IntroSequence.Finish) leaves Pac-Man in the lab at (-70,0,60); call PlayerMovement.Respawn() after it. Normal play is not affected.
+
+Next: user tries Level 2 lane change and the new minimap; then main menu, sound/music, high score, Sentinel/Hunter models, Level 3.
+
+## Realistic look for Level 1 - first version (21 Nov)
+- User: the city "looks like Lego"; wants it more realistic, **free only**. Keep Pac-Man and the Bugs as they are.
+- Causes found: one small Kenney toy model per maze cell (rows of identical cubes), flat colormap colours, everything glowing, flat ground, steep top-down camera.
+- New `Assets/Scripts/World/RealisticCity.cs`, switched on with the new checkbox **LevelBuilder > Look > realisticLook** (Level 1 scene saved with it ON; untick = the previous neon look, CityVisuals unchanged). Backup of the old LevelBuilder: `Docs/LevelBackups/LevelBuilder_before_realistic_21nov.cs.txt`.
+  - One building per city block (greedy rectangles up to 4x4 cells): low podium with lit shopfronts + sign bands, tower on the camera (south) side of the block, height limited so the street behind stays visible at the 66 degree camera (h * 0.445 <= podium depth). Tall towers on the far border/skyline, low buildings near the camera.
+  - Procedural PBR textures generated at load (no downloads, no assets): concrete office, glass curtain wall, brick flats, shopfront podium, roof gravel/tar, wet asphalt, sidewalk slabs - each with normal map + metallic/smoothness map, world-space UVs.
+  - Rooftop clutter (AC units, fan grilles, water tanks, antennas with red lights, parapets, glowing skylights), sidewalks with curbs, ~120 street lamps (sodium + some LED, Forward+ point lights), a few neon signs as accents.
+  - Lighting: moonlight 1.1 with soft shadows, Trilight ambient, fog 0.018, URP SSAO turned on (`RealisticCity.SetSSAO`, off again for non-realistic levels), calmer bloom, filmic grading, film grain, slight chromatic aberration.
+- Tested in Play: compiles, no game errors, 89 maze buildings, ~2200 renderers, ~30 ms/frame in the unfocused editor (about the same as before). Screenshots: `Assets/Screenshots/real_before_start.png` (before), `real_v3_mid.png` (after), `real_v2_pitch54.png` (lower camera test).
+- Not tested yet: Autopilot full run with the new look, BuildingFader on the bigger block buildings in all spots, Level 2 (unchanged, still CityVisuals), a Windows build (runtime materials use _NORMALMAP / _METALLICSPECGLOSSMAP keywords; for a build these shader variants may need to be kept, e.g. save the materials as assets or add a shader variant collection).
+- Ideas next: lower camera (about 56-58 degrees) for a more cinematic look (towers would need to be a bit lower), parked/moving cars, road markings, steam and puddle reflections, apply the same approach to Level 2.
+
+## Roads, calmer colours, cinematic HUD (21 Nov, user feedback)
+- User: roads must be clearer; the neon colours (cyan HUD boxes, big coloured arrows, pink/cyan rings) did not match the realistic city; the HUD "board" too big; wants a clean racing-game style HUD.
+- Roads (`RealisticCity.BuildStreets`): white painted edge line along every curb, dashed yellow centre line on straight stretches, lighter asphalt and sidewalks, darker roofs (streets now read lighter than roofs). Puddle discs are skipped in the realistic look (they looked like black holes; the asphalt has wet patches).
+- World colours (only when `RealisticCity.Active`): no holo rings over the plaza, zebra crossings are white paint, hover-car trails are red tail lights, Energy Orbs smaller and warm pale (#FFE2B0, glow 1.5 instead of cyan 2.8), skylights dimmer. HUD accent = Pac-Man yellow #FFC93C.
+- Clean HUD (`GameHUD.DrawCleanHud`, used only with the realistic look; Level 2 keeps the old HUD): no boxes, Bahnschrift font (Windows OS font, fallback Segoe UI/Arial), scales with screen height (designed for 1080p): level line "01  N E O N  D I S T R I C T", big core count + 10 pips, score, small Pac-Man lives, power-fruit legend only for the first 14 s then only active powers, thin energy bar + ring blast button at the bottom, small soft Bug arrows, new Game Over / Region Restored screens. `DrawPanel` (BYTE, intro, messages) = translucent strip with hairline and accent bar. Minimap smaller (22% of height), thin white frame, grey streets. BYTE box scaled the same way.
+- Backups: `Docs/LevelBackups/GameHUD_before_hud_21nov.cs.txt`, `Minimap_before_hud_21nov.cs.txt`.
+- Tests: compiles, no game errors; Autopilot Bugs ON **PASS** 44.0 s, 10/10, 3 lives, 1 blast. Screenshots `real_v5_hud.png`, `real_v5_complete.png`.
+- Next: user feedback on the look; then the intro/title in the same style, sound + game feel, Level 2 realistic pass.
+
+## Power cards, minimap legend, cool street lights, BYTE voice-only (21 Nov, user feedback)
+- User: street lights looked like Nexus Cores; fruit shapes/effects unreadable; wants cinematic power display with countdown and what it does; on the minimap can't tell me / cores / powers apart; BYTE following during play is confusing.
+- Street lamps (`RealisticCity`): cool white LED lights and flat dim LED heads (yellow now only means collectibles). Each Nexus Core has a thin yellow beam rising above it (`LevelBuilder`, realistic look only).
+- Fruits (`PowerUp.BuildIcon`): in the realistic look the 3D fruit is replaced by the clear fruit picture (same as minimap), floating and always facing the camera.
+- Power cards (`GameHUD.DrawPowerCards` / `DrawPowerAnnounce`, realistic look): on pickup a big announcement for 1.8 s (fruit picture, spaced name, "APPLE · Bugs turn blue and flee - eat them!"); then one card per active power bottom-left: fruit inside a 40-tick countdown ring, name in the power colour, effect text, seconds left, thin bar, blinks in the last 2 s, slides in. Shield shows "1 HIT". The old floating text + BYTE line on pickup are skipped in the realistic look. Old fruit legend removed (cards replace it). `HookPowers()` runs in Update.
+- Minimap (clean mode): YOU = white round badge with Pac-Man, CORE = yellow diamond, POWER = fruit picture (bigger), BUG = red danger halo, GENERATOR = square; small legend under the map.
+- BYTE (`ByteCompanion`): model + light hidden during play in the realistic look; still talks in the dialogue box; still visible in the intro.
+- Tests: compiles, no errors; pickup announcement + cards checked with screenshots (`real_v6_powers.png`, `real_v6_announce2.png`); Autopilot Bugs ON PASS 41.5 s, 10/10, 3 lives.
+- Note: a recompile happened while Level 2 was playing (user) and broke that session (BugAI NullReference) - normal Unity behaviour, not a bug in the code.
+
+## cinematic intro (21 Nov, user: "make the intro cinematic like a racing game, story stays, city cards, show the Bugs and their powers")
+- New `Assets/Scripts/Core/IntroSequence.Cinematic.cs` (IntroSequence is now `partial`) + `Core/IntroAudio.cs`. Used only with the realistic look; the old intro is untouched for other looks (backup `Docs/LevelBackups/IntroSequence_before_intro_21nov.cs.txt`).
+- Flow (~70 s, ENTER = next/skip ahead, ESC = jump to district select):
+  1. Cold open in the real Neon District: aerial drift, Gran Via street dolly, crane up col 16, blackout from above (`RealisticCity.SetCityPower` flickers windows/lamps/signs off), Hunter close-up, tilted run down col 21, "SYSTEM FAILURE" glitch, story line on black. Letterbox, cinematic lower-left captions (tag + line), glitch strips.
+  2. Lab: macro slide past the pod while the terminal reboots (heartbeat thumps), ONLINE close-up hit, pod opens with low hero angle, BYTE's 3 lines (shortened), Pac-Man launches up.
+  3. Title slam: city lights switch on in a wave from Pac-Man's start (riser), impact + flash, "PAC-MAN" letters track in, "NEXUS" yellow, line, "THE LOST CITY".
+  4. Know Your Enemy: Bug showroom at (-70,0,170) with live BugModels, rival cards (name, class chip, first seen, description, Speed/Aggression/Detection segment bars, 2 powers, weakness Apple + Energy Blast, auto-advance bar, tip "every Bug is slower than you"); then 3 CLASSIFIED cards (districts 03/04/05 boss).
+  5. Select District: 5 cards (01 Neon District AVAILABLE with picture, 02 Skyline Zone LOCKED greyed, 03-05 SIGNAL LOST static), arrows browse (tick), ENTER on a locked card = shake + deny buzz, ENTER on 01 = impact + camera swoop into play. Shows "0 / 5 generators online". `DistrictState()` already supports later levels (restored / current).
+- Card pictures: `Assets/Resources/IntroCards/district1.png`, `district2.png` (rendered with a temp camera, no HUD). Level 2 picture is the old look; re-render when Level 2 gets the realistic pass.
+- Sound: synthesised at start (drone loop, whoosh, impact, riser, thump, glitch, tick, deny) - the first sound in the game.
+- Intro UI is scaled from 1080p without the HUD clamp so it fits any window.
+- Tests: compiles, no errors; screenshots of every phase (`intro_new_*.png` in Assets/Screenshots); hand-off checked: lab + showroom removed, fog on, camera follow on, game playing.
+- Ideas next: Level 2 realistic pass + district card intro for Level 2 (reuse the card screen with 01 RESTORED), gameplay sounds (pickups, cores, eat Bug), music.
+
+## Level 2 Skyline Zone - realistic look + cinematic level intro (21 Nov)
+- Level 2 scene saved with `realisticLook = true` (untick to get the old sunset look back; backup of the city script before this: `RealisticCity_before_sky.bak` in the session outputs only).
+- `RealisticCity` Skyline theme (`Sky` = CityVisuals.CurrentTheme == SkylineZone):
+  - same block buildings, but walls start 9 units below the bridges (`BaseY`), bigger gaps between towers (0.14), taller skyline (4-8), no neon signs;
+  - daylight PBR textures made in code: 3 glass curtain walls reflecting the sky, 2 light stone/concrete offices, warm sandstone, light roof gravel; roof clutter as in Level 1;
+  - `BuildSkyBridges`: asphalt bridge decks (0.28 thick, no wet patches), concrete parapets + metal rail on every edge, white edge lines, dashed lane dividers between the two lanes, pillars every 4 cells down into the clouds, unlit lamp posts; cloud sea + silver hover cars still from CityVisuals.BuildGround;
+  - `ApplySkyAtmosphere`: low warm sun (26/-58, 1.9, soft shadows), procedural sky with sun disk, warm haze fog, filmic grade, light grain. SSAO on (shared with Level 1).
+- Level 2+ start (`IntroSequence.CinematicLevelCard`): ~20 s cinematic with BYTE's Level 2 story lines as captions (aerial approach over the clouds, low dolly on a sky bridge, the offline Generator, the new Sentinel), district name slam (SKYLINE ZONE / DISTRICT 02 / RESTORE THE GENERATOR), then the district cards (01 RESTORED + GENERATOR ONLINE, 02 AVAILABLE, 03-05 signal lost), ENTER swoops into play. ENTER now also skips the current shot in every intro shot.
+- Card picture `Resources/IntroCards/district2.png` re-rendered with the new look.
+- Tests: compiles, no errors; screenshots `l2_real_intro_a/b/c.png`; the user played Level 2 right away (score 1840, 2 cores, ~25 ms/frame, no errors). NOT checked by Claude yet: the Level 2 district card screen, Autopilot on the new Level 2, the Level 1 -> Level 2 flow.
+- Possible polish: the low buildings on the camera side of the bottom street show big brown roofs - could be lowered / given more varied roofs.
+
+## Skyline Zone buildings v2 + city to the horizon (21 Nov, user: "I don't like the buildings; in the intro there is nothing outside the city")
+- `RealisticCity.SkyBlock`: no podiums in the sky. Slim towers (glass 65% / white or grey concrete 35%), more setbacks; camera-side blocks and ~30% of inner blocks are "deep" (tops 0.8-4 units BELOW the bridges) so you look down into the city and see the clouds; inner blocks get a slim tower on the camera side + a deep tower behind it. Far border/band towers 4-9 tall.
+- Day palette cooler (blue-grey glass, white/grey concrete, no orange sandstone), light clean roofs with 1-4 white roof units, no water tanks/skylights in the sky. Sun less orange (#FFD8B4, 1.75), white balance +2.
+- `BuildFarCity` (both levels): towers on a jittered 3-cell grid out to 46 cells beyond the skyline band, merged into one mesh per material, no shadows; night = lit office/glass/brick towers (ground plane extended to band+52), sky = glass/white towers rising out of the clouds. Fog hides the edge. Level 1 blackout in the intro also darkens them (shared materials).
+- Intro street dollies raised (camera 0.95-1.0 instead of 0.3) - the orbs were huge white blobs in front of the lens.
+- Tests: compiles, no errors; screenshots `l2_v2_outside.png`, `l2_v2_aerial.png`, `l2_v2_menu.png` (Level 2 district cards: 01 RESTORED, 02 AVAILABLE, 1/5 online - checked), `l2_v2_play.png`, `l1_v2_outside.png`. Autopilot Level 2 PASS 66.5 s, 10/10, 2 lives, 3 blasts.

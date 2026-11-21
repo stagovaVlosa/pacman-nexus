@@ -24,6 +24,10 @@ namespace Nexus
     {
         public PowerUpType type;
 
+        /// <summary>Size of the fruit (1 = old size from before 17 Nov).</summary>
+        const float VisualScale = 1.5f;
+        const float VisualHeight = 0.6f;
+
         Transform visual, spinner;
         Material coreMat;
         float phase;
@@ -95,7 +99,8 @@ namespace Nexus
             Color c = ColorFor(type);
             visual = new GameObject("Visual").transform;
             visual.SetParent(transform, false);
-            visual.localPosition = new Vector3(0f, 0.5f, 0f);
+            visual.localPosition = new Vector3(0f, VisualHeight, 0f);
+            visual.localScale = Vector3.one * VisualScale;   // 17 Nov: fruits bigger, easier to see
             spinner = new GameObject("Spinner").transform;
             spinner.SetParent(visual, false);
 
@@ -146,15 +151,50 @@ namespace Nexus
                 }
             }
             foreach (var r in GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            GroundRing.Create(transform, c, 0.32f, 0.5f);
+            GroundRing.Create(transform, c, 0.32f * VisualScale, 0.5f);
+            if (RealisticCity.Active) BuildIcon();
+        }
+
+        Transform icon;
+
+        /// <summary>
+        /// Realistic look (21 Nov, user: "can't see the shapes of the fruits"): the same clear fruit picture as on the
+        /// minimap, floating above the fruit and always facing the camera, so every power reads at a glance.
+        /// The 3D fruit is hidden (from the high camera it was a small blob).
+        /// </summary>
+        void BuildIcon()
+        {
+            spinner.gameObject.SetActive(false);
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) return;
+            var m = new Material(shader);
+            m.SetTexture("_BaseMap", Minimap.FruitIcon(type));
+            m.SetColor("_BaseColor", Color.white * 1.15f);
+            m.SetFloat("_Surface", 1f);
+            m.SetFloat("_Blend", 0f);
+            m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            m.SetFloat("_ZWrite", 0f);
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            q.name = "FruitIcon";
+            Destroy(q.GetComponent<Collider>());
+            q.transform.SetParent(visual, false);
+            q.transform.localScale = Vector3.one * 0.42f;
+            var r = q.GetComponent<Renderer>();
+            r.sharedMaterial = m;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            icon = q.transform;
         }
 
         void Update()
         {
             if (visual == null) return;
             float t = Time.time + phase;
-            visual.localPosition = new Vector3(0f, 0.5f + Mathf.Sin(t * 1.8f) * 0.05f, 0f);
+            visual.localPosition = new Vector3(0f, VisualHeight + Mathf.Sin(t * 1.8f) * 0.05f, 0f);
             spinner.Rotate(0f, 50f * Time.deltaTime, 0f, Space.World);
+            if (icon != null && Camera.main != null) icon.rotation = Camera.main.transform.rotation;   // billboard
             // Gentle breathing glow (no hard blinking)
             float pulse = 0.85f + 0.15f * Mathf.Sin(t * 2f);
             if (coreMat != null) coreMat.SetColor("_EmissionColor", ColorFor(type) * (1.0f * pulse));

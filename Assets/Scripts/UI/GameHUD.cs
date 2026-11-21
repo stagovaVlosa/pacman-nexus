@@ -43,6 +43,8 @@ namespace Nexus
             if (!TryGetComponent(out Minimap _)) gameObject.AddComponent<Minimap>();
         }
 
+        void Update() => HookPowers();   // hook as early as possible, so no pickup is missed
+
         /// <summary>Shows a short message in the middle of the screen for a few seconds.</summary>
         public void ShowMessage(string text, float seconds)
         {
@@ -55,6 +57,7 @@ namespace Nexus
             var gm = GameManager.Instance;
             if (gm == null || IntroSequence.Active) return;
             if (label == null) CreateStyles();
+            if (RealisticCity.Active) { DrawCleanHud(gm); return; }
 
             // Status panel (top left): level, Nexus Cores, score, lives
             var panel = new Rect(16f, 16f, 250f, 124f);
@@ -140,10 +143,23 @@ namespace Nexus
             arrowIcon = MakeArrowIcon();
         }
 
-        /// <summary>Dark HUD panel with a cyan frame (palette: Midnight Navy + Electric Cyan).</summary>
+        /// <summary>Dark HUD panel with a cyan frame (palette: Midnight Navy + Electric Cyan).
+        /// Realistic look: translucent dark strip, hairline on top and a thin accent bar on the left.</summary>
         public static void DrawPanel(Rect r, float alpha = 1f)
         {
             var old = GUI.color;
+            if (RealisticCity.Active)
+            {
+                GUI.color = new Color(0.015f, 0.018f, 0.028f, 0.74f * alpha);
+                GUI.DrawTexture(r, Texture2D.whiteTexture);
+                GUI.color = new Color(1f, 1f, 1f, 0.16f * alpha);
+                GUI.DrawTexture(new Rect(r.x, r.y, r.width, 1f), Texture2D.whiteTexture);
+                var a = Accent; a.a = alpha;
+                GUI.color = a;
+                GUI.DrawTexture(new Rect(r.x, r.y, 3f, r.height), Texture2D.whiteTexture);
+                GUI.color = old;
+                return;
+            }
             GUI.color = new Color(0.03f, 0.05f, 0.11f, 0.85f * alpha);
             GUI.DrawTexture(r, Texture2D.whiteTexture);
             var c = Accent;
@@ -487,6 +503,536 @@ namespace Nexus
                         c = new Color(1f, 1f, 1f, a);
                     }
                     tex.SetPixel(x, y, c);
+                }
+            tex.Apply();
+            return tex;
+        }
+
+        // =====================================================================================
+        // Clean HUD (21 Nov, realistic look). Inspired by a calm, typographic racing-game HUD:
+        // no boxes, white type with one warm accent, thin lines, everything small and at the edges,
+        // a soft dark shade only where text sits. Scales with the screen height (designed for 1080p).
+        // =====================================================================================
+
+        static Font hudFont;
+        static bool fontTried;
+        /// <summary>Bahnschrift (condensed DIN-like, ships with Windows 10/11), else Segoe UI / Arial.</summary>
+        public static Font HudFont
+        {
+            get
+            {
+                if (!fontTried)
+                {
+                    fontTried = true;
+                    try { hudFont = Font.CreateDynamicFontFromOSFont(new[] { "Bahnschrift", "Segoe UI", "Arial" }, 32); }
+                    catch { hudFont = null; }
+                }
+                return hudFont;
+            }
+        }
+        public static float UiScale => Mathf.Clamp(Screen.height / 1080f, 0.62f, 1.6f);
+        static readonly Color TextWhite = new Color(0.95f, 0.96f, 0.97f);
+        static readonly Color TextDim = new Color(0.63f, 0.67f, 0.73f);
+
+        GUIStyle cHeader, cBig, cDenom, cLabel, cValue, cCenter, cTitle, cOver, cSmallC, cPower, cPowerDim, cKey;
+        Texture2D shadeTL, shadeBottom, lineFade, pipTex, pipFrameTex, ringTexC;
+        float playStart = -1f;
+
+        void CreateCleanStyles()
+        {
+            var f = HudFont;
+            GUIStyle S(int size, Color c, FontStyle fs = FontStyle.Normal, TextAnchor a = TextAnchor.MiddleLeft)
+            {
+                var st = new GUIStyle(GUI.skin.label) { fontSize = size, fontStyle = fs, alignment = a, richText = true, clipping = TextClipping.Overflow, wordWrap = false };
+                if (f != null) st.font = f;
+                st.normal.textColor = c;
+                return st;
+            }
+            cHeader = S(15, TextDim);
+            cBig = S(58, TextWhite, FontStyle.Bold);
+            cDenom = S(24, TextDim);
+            cLabel = S(12, TextDim, FontStyle.Bold);
+            cValue = S(26, TextWhite, FontStyle.Bold);
+            cCenter = S(20, TextWhite, FontStyle.Normal, TextAnchor.MiddleCenter);
+            cSmallC = S(12, TextDim, FontStyle.Bold, TextAnchor.MiddleCenter);
+            cTitle = S(56, TextWhite, FontStyle.Bold, TextAnchor.MiddleCenter);
+            cOver = S(68, Visuals.CorruptedRed, FontStyle.Bold, TextAnchor.MiddleCenter);
+            cPower = S(13, TextWhite, FontStyle.Bold);
+            cPowerDim = S(12, TextDim);
+            cKey = S(11, TextWhite, FontStyle.Bold, TextAnchor.MiddleCenter);
+
+            shadeTL = MakeShade(256, 160, true);
+            shadeBottom = MakeShade(256, 64, false);
+            lineFade = new Texture2D(128, 1, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+            for (int x = 0; x < 128; x++) lineFade.SetPixel(x, 0, new Color(1f, 1f, 1f, 1f - x / 127f));
+            lineFade.Apply();
+            pipTex = MakeDiamond(24, true);
+            pipFrameTex = MakeDiamond(24, false);
+            ringTexC = MakeRing(64, 2.2f);
+        }
+
+        static string Spaced(string s) => string.Join(" ", s.ToUpper().ToCharArray()).Replace("   ", "    ");
+        static string HexOf(Color c) => ColorUtility.ToHtmlStringRGB(c);
+
+        void DrawCleanHud(GameManager gm)
+        {
+            if (cHeader == null) CreateCleanStyles();
+            if (gm.IsPlaying && playStart < 0f) playStart = Time.time;
+            float k = UiScale;
+            var savedMatrix = GUI.matrix;
+            GUI.matrix = Matrix4x4.Scale(new Vector3(k, k, 1f));
+            float VW = Screen.width / k, VH = Screen.height / k;
+
+            // soft shade only where text sits (top left, bottom centre)
+            GUI.color = Color.white;
+            GUI.DrawTexture(new Rect(0f, 0f, 620f, 330f), shadeTL);
+            GUI.DrawTexture(new Rect(VW / 2f - 420f, VH - 130f, 840f, 130f), shadeBottom);
+
+            float x = 44f, y = 34f;
+            int num = LevelBuilder.Instance != null ? LevelBuilder.Instance.levelNumber : 1;
+            GUI.Label(new Rect(x, y, 500f, 20f), $"<color=#{HexOf(Accent)}><b>{num:00}</b></color>    {Spaced(gm.levelName)}", cHeader);
+            y += 26f;
+            GUI.color = new Color(1f, 1f, 1f, 0.35f);
+            GUI.DrawTexture(new Rect(x, y, 300f, 1f), lineFade);
+            GUI.color = Color.white;
+            y += 8f;
+
+            // Nexus Cores: big number, small "/10", label and ten pips
+            string cores = gm.CoresCollected.ToString();
+            var bigSize = cBig.CalcSize(new GUIContent(cores));
+            GUI.Label(new Rect(x - 2f, y, bigSize.x + 4f, 66f), cores, cBig);
+            GUI.Label(new Rect(x + bigSize.x + 4f, y + 22f, 60f, 30f), "/" + gm.CoresRequired, cDenom);
+            float lx = x + bigSize.x + 56f;
+            GUI.Label(new Rect(lx, y + 14f, 200f, 16f), "N E X U S   C O R E S", cLabel);
+            for (int i = 0; i < gm.CoresRequired; i++)
+            {
+                var pr = new Rect(lx + i * 15f, y + 36f, 11f, 11f);
+                bool got = i < gm.CoresCollected;
+                bool newest = got && i == gm.CoresCollected - 1;
+                float pulse = newest ? 0.8f + 0.2f * Mathf.Sin(Time.time * 4f) : 1f;
+                GUI.color = got ? new Color(Accent.r, Accent.g, Accent.b, pulse) : new Color(1f, 1f, 1f, 0.28f);
+                GUI.DrawTexture(pr, got ? pipTex : pipFrameTex);
+            }
+            GUI.color = Color.white;
+            y += 74f;
+
+            // Score + lives on one line
+            GUI.Label(new Rect(x, y, 80f, 16f), "S C O R E", cLabel);
+            GUI.Label(new Rect(x, y + 14f, 200f, 32f), gm.Score.ToString("N0"), cValue);
+            DrawCleanLives(gm, new Vector2(x + 190f, y + 2f));
+            y += 58f;
+
+            // Power fruits (21 Nov, cinematic): a big announcement when one is taken + a card per active power
+            HookPowers();
+            if (gm.IsPlaying) { DrawPowerCards(VW, VH); DrawPowerAnnounce(VW, VH); }
+
+            // Energy (bottom centre): label, value, a thin bar, and the blast key to the right
+            float bw = 360f, bx = VW / 2f - bw / 2f, by = VH - 52f;
+            GUI.Label(new Rect(bx, by - 20f, 120f, 16f), "E N E R G Y", cLabel);
+            var right = new GUIStyle(cLabel) { alignment = TextAnchor.MiddleRight };
+            GUI.Label(new Rect(bx + bw - 120f, by - 20f, 120f, 16f), $"{Mathf.FloorToInt(gm.Energy)} / {gm.maxEnergy:0}", right);
+            GUI.color = new Color(1f, 1f, 1f, 0.14f);
+            GUI.DrawTexture(new Rect(bx, by, bw, 4f), Texture2D.whiteTexture);
+            float e = Mathf.Clamp01(gm.Energy / gm.maxEnergy);
+            GUI.color = Accent;
+            GUI.DrawTexture(new Rect(bx, by, bw * e, 4f), Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 1f, 1f, 0.9f);
+            if (e > 0.01f) GUI.DrawTexture(new Rect(bx + bw * e - 2f, by - 2f, 2f, 8f), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            DrawCleanBlast(new Rect(bx + bw + 26f, by - 24f, 40f, 40f), gm);
+
+            if (gm.IsPlaying) DrawDevourEdgeV(VW, VH);
+            DrawPopupsV(k);
+            DrawBugArrowsV(VW, VH);
+
+            if (gm.GameOver)
+            {
+                GUI.color = new Color(0f, 0f, 0f, 0.7f);
+                GUI.DrawTexture(new Rect(0, 0, VW, VH), Texture2D.whiteTexture);
+                GUI.color = Color.white;
+                GUI.Label(new Rect(0, VH / 2f - 70f, VW, 80f), "G A M E   O V E R", cOver);
+                GUI.Label(new Rect(0, VH / 2f + 18f, VW, 30f), $"SCORE  {gm.Score:N0}", cCenter);
+                GUI.Label(new Rect(0, VH / 2f + 56f, VW, 24f), "PRESS SPACE TO RESTART", cSmallC);
+            }
+            else if (gm.LevelComplete)
+            {
+                GUI.color = new Color(0f, 0f, 0f, 0.45f);
+                GUI.DrawTexture(new Rect(0, VH / 2f - 80f, VW, 170f), Texture2D.whiteTexture);
+                GUI.color = Color.white;
+                GUI.Label(new Rect(0, VH / 2f - 62f, VW, 70f), "R E G I O N   R E S T O R E D", cTitle);
+                GUI.color = new Color(Accent.r, Accent.g, Accent.b, 0.9f);
+                GUI.DrawTexture(new Rect(VW / 2f - 160f, VH / 2f + 10f, 320f, 2f), Texture2D.whiteTexture);
+                GUI.color = Color.white;
+                GUI.Label(new Rect(0, VH / 2f + 22f, VW, 30f), $"FINAL SCORE  {gm.Score:N0}", cCenter);
+                GUI.Label(new Rect(0, VH / 2f + 56f, VW, 24f),
+                    gm.HasNextLevel ? "PRESS ENTER FOR THE NEXT REGION" : "MORE REGIONS COMING SOON", cSmallC);
+            }
+            else if (message != null && Time.time < messageUntil)
+            {
+                var box = new Rect(VW / 2f - 260f, VH * 0.28f, 520f, 44f);
+                DrawPanel(box);
+                GUI.Label(box, message, cCenter);
+            }
+
+            GUI.color = Color.white;
+            GUI.matrix = savedMatrix;
+        }
+
+        /// <summary>Lives: small yellow Pac-Man icons; a lost one flashes red and shrinks away, the last one blinks.</summary>
+        void DrawCleanLives(GameManager gm, Vector2 o)
+        {
+            if (lastLives < 0) lastLives = gm.Lives;
+            if (gm.Lives < lastLives) { lifeLostAt = Time.time; lifeLostIndex = gm.Lives; }
+            lastLives = gm.Lives;
+            GUI.Label(new Rect(o.x, o.y, 80f, 16f), "L I V E S", cLabel);
+            int slots = Mathf.Max(gm.startLives, gm.Lives);
+            for (int i = 0; i < slots; i++)
+            {
+                var r = new Rect(o.x + i * 26f, o.y + 18f, 20f, 20f);
+                bool alive = i < gm.Lives;
+                bool justLost = i == lifeLostIndex && Time.time - lifeLostAt < 0.8f;
+                if (alive)
+                {
+                    float a = gm.Lives == 1 ? 0.55f + 0.45f * Mathf.Sin(Time.time * 7f) : 1f;
+                    GUI.color = new Color(1f, 1f, 1f, a);   // the icon itself is Pac-Man yellow
+                    GUI.DrawTexture(r, lifeIcon);
+                }
+                else if (justLost)
+                {
+                    float t = (Time.time - lifeLostAt) / 0.8f;
+                    float g = 1f - t * 0.6f;
+                    GUI.color = new Color(1f, 0.25f, 0.3f, 1f - t);
+                    GUI.DrawTexture(new Rect(r.center.x - 10f * g, r.center.y - 10f * g, 20f * g, 20f * g), lifeIcon);
+                }
+                else
+                {
+                    GUI.color = new Color(1f, 1f, 1f, 0.14f);
+                    GUI.DrawTexture(r, lifeIcon);
+                }
+            }
+            GUI.color = Color.white;
+        }
+
+        /// <summary>
+        /// Power fruits: the full list for the first 12 seconds of play (so new players learn them), then only
+        /// the active ones, each as a compact line with a thin timer bar.
+        /// </summary>
+        void DrawCleanPowers(Vector2 o)
+        {
+            var powers = PlayerPowers.Instance;
+            if (powers == null) return;
+            if (dotTex == null) dotTex = MakeDot();
+            float since = playStart < 0f ? 0f : Time.time - playStart;
+            float legendA = Mathf.Clamp01((14f - since) / 2f);
+            var types = new[] { PowerUpType.Devour, PowerUpType.SpeedBurst, PowerUpType.Shield, PowerUpType.Magnet };
+            float y = o.y;
+            foreach (var type in types)
+            {
+                float left = 0f, total = 0f; bool active;
+                switch (type)
+                {
+                    case PowerUpType.Devour: left = powers.DevourLeft; total = powers.devourTime; active = left > 0f; break;
+                    case PowerUpType.SpeedBurst: left = powers.SpeedLeft; total = powers.speedTime; active = left > 0f; break;
+                    case PowerUpType.Magnet: left = powers.MagnetLeft; total = powers.magnetTime; active = left > 0f; break;
+                    default: active = powers.HasShield; break;
+                }
+                float a = active ? 1f : legendA * 0.7f;
+                if (a <= 0.01f) continue;
+                if (active && total > 0f && left < 2f) a = 0.5f + 0.5f * Mathf.Sin(Time.time * 6f);
+                var c = PowerUp.ColorFor(type);
+                GUI.color = new Color(c.r, c.g, c.b, a);
+                GUI.DrawTexture(new Rect(o.x, y + 4f, 9f, 9f), dotTex);
+                GUI.color = new Color(1f, 1f, 1f, a);
+                GUI.Label(new Rect(o.x + 16f, y, 80f, 18f), PowerUp.FruitFor(type).ToUpper(), cPower);
+                GUI.Label(new Rect(o.x + 84f, y, 120f, 18f), PowerUp.EffectFor(type), cPowerDim);
+                if (active)
+                {
+                    string txt = total > 0f ? left.ToString("0.0") + "s" : "READY";
+                    GUI.Label(new Rect(o.x + 200f, y, 60f, 18f), $"<color=#{HexOf(c)}>{txt}</color>", cPower);
+                    if (total > 0f)
+                    {
+                        GUI.color = new Color(c.r, c.g, c.b, 0.85f);
+                        GUI.DrawTexture(new Rect(o.x + 16f, y + 18f, 230f * Mathf.Clamp01(left / total), 2f), Texture2D.whiteTexture);
+                    }
+                }
+                GUI.color = Color.white;
+                y += 24f;
+            }
+        }
+
+        // ---------- Power cards (21 Nov) ----------
+        bool powersHooked;
+        PowerUpType announceType;
+        float announceAt = -10f;
+        GUIStyle cCardName, cCardEffect, cCardTime, cAnnName, cAnnEffect;
+
+        void HookPowers()
+        {
+            if (powersHooked || PlayerPowers.Instance == null) return;
+            PlayerPowers.Instance.OnActivated += t => { announceType = t; announceAt = Time.time; };
+            powersHooked = true;
+        }
+
+        void EnsureCardStyles()
+        {
+            if (cCardName != null) return;
+            var f = HudFont;
+            GUIStyle S(int size, Color c, FontStyle fs, TextAnchor a)
+            {
+                var st = new GUIStyle(GUI.skin.label) { fontSize = size, fontStyle = fs, alignment = a, richText = true, clipping = TextClipping.Overflow, wordWrap = false };
+                if (f != null) st.font = f;
+                st.normal.textColor = c;
+                return st;
+            }
+            cCardName = S(16, TextWhite, FontStyle.Bold, TextAnchor.MiddleLeft);
+            cCardEffect = S(13, TextDim, FontStyle.Normal, TextAnchor.MiddleLeft);
+            cCardTime = S(26, TextWhite, FontStyle.Bold, TextAnchor.MiddleRight);
+            cAnnName = S(40, TextWhite, FontStyle.Bold, TextAnchor.MiddleLeft);
+            cAnnEffect = S(18, TextWhite, FontStyle.Normal, TextAnchor.MiddleLeft);
+        }
+
+        /// <summary>Longer explanation shown on the card and in the announcement.</summary>
+        static string LongEffect(PowerUpType t)
+        {
+            switch (t)
+            {
+                case PowerUpType.Devour: return "Bugs turn blue and flee - eat them!";
+                case PowerUpType.SpeedBurst: return "You move 45% faster";
+                case PowerUpType.Shield: return "Blocks the next Bug hit";
+                default: return "Nearby orbs fly to you";
+            }
+        }
+
+        /// <summary>
+        /// One card per active power, stacked above the bottom-left corner: the fruit picture inside a countdown ring,
+        /// the power's name and what it does, the seconds left and a thin bar. Blinks in the last 2 seconds.
+        /// </summary>
+        void DrawPowerCards(float VW, float VH)
+        {
+            var powers = PlayerPowers.Instance;
+            if (powers == null) return;
+            EnsureCardStyles();
+            var types = new[] { PowerUpType.Devour, PowerUpType.SpeedBurst, PowerUpType.Magnet, PowerUpType.Shield };
+            float y = VH - 96f;
+            foreach (var type in types)
+            {
+                float left = 0f, total = 0f; bool active;
+                switch (type)
+                {
+                    case PowerUpType.Devour: left = powers.DevourLeft; total = powers.devourTime; active = left > 0f; break;
+                    case PowerUpType.SpeedBurst: left = powers.SpeedLeft; total = powers.speedTime; active = left > 0f; break;
+                    case PowerUpType.Magnet: left = powers.MagnetLeft; total = powers.magnetTime; active = left > 0f; break;
+                    default: active = powers.HasShield; break;
+                }
+                if (!active) continue;
+                var c = PowerUp.ColorFor(type);
+                float k01 = total > 0f ? Mathf.Clamp01(left / total) : 1f;
+                bool ending = total > 0f && left < 2f;
+                float a = ending ? 0.55f + 0.45f * Mathf.Sin(Time.time * 9f) : 1f;
+                // slide in from the left during the first 0.25 s of a power
+                float age = total > 0f ? total - left : (type == announceType ? Time.time - announceAt : 1f);
+                float slide = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(age / 0.25f));
+                var card = new Rect(44f - (1f - slide) * 320f, y, 300f, 62f);
+
+                DrawPanel(card, 0.95f);
+                GUI.color = new Color(c.r, c.g, c.b, 1f);
+                GUI.DrawTexture(new Rect(card.x, card.y, 3f, card.height), Texture2D.whiteTexture);   // colour bar instead of the accent
+
+                // countdown ring of 40 small ticks around the fruit picture
+                var ic = new Vector2(card.x + 34f, card.center.y);
+                const int ticks = 40;
+                for (int i = 0; i < ticks; i++)
+                {
+                    float ang = (i / (float)ticks) * Mathf.PI * 2f - Mathf.PI / 2f;
+                    bool on = i / (float)ticks < k01;
+                    var tp = ic + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * 24f;
+                    GUI.color = on ? new Color(c.r, c.g, c.b, a) : new Color(1f, 1f, 1f, 0.12f);
+                    GUI.DrawTexture(new Rect(tp.x - 1.5f, tp.y - 1.5f, 3f, 3f), Texture2D.whiteTexture);
+                }
+                GUI.color = new Color(1f, 1f, 1f, a);
+                GUI.DrawTexture(new Rect(ic.x - 17f, ic.y - 17f, 34f, 34f), Minimap.FruitIcon(type));
+
+                GUI.color = Color.white;
+                GUI.Label(new Rect(card.x + 66f, card.y + 10f, 170f, 20f), $"<color=#{HexOf(Color.Lerp(c, Color.white, 0.35f))}>{PowerUp.NameFor(type)}</color>", cCardName);
+                GUI.Label(new Rect(card.x + 66f, card.y + 32f, 180f, 18f), LongEffect(type), cCardEffect);
+                string tt = total > 0f ? left.ToString("0.0") : "1 HIT";
+                var timeStyle = new GUIStyle(cCardTime) { fontSize = total > 0f ? 26 : 15 };
+                timeStyle.normal.textColor = new Color(1f, 1f, 1f, a);
+                GUI.Label(new Rect(card.xMax - 80f, card.y + 6f, 70f, 30f), tt, timeStyle);
+                if (total > 0f)
+                {
+                    GUI.color = new Color(1f, 1f, 1f, 0.12f);
+                    GUI.DrawTexture(new Rect(card.x + 66f, card.yMax - 7f, card.width - 78f, 2f), Texture2D.whiteTexture);
+                    GUI.color = new Color(c.r, c.g, c.b, a);
+                    GUI.DrawTexture(new Rect(card.x + 66f, card.yMax - 7f, (card.width - 78f) * k01, 2f), Texture2D.whiteTexture);
+                }
+                GUI.color = Color.white;
+                y -= 70f;
+            }
+        }
+
+        /// <summary>Big announcement for 1.8 s when a power is taken: fruit picture, name and what it does (slides in, fades out).</summary>
+        void DrawPowerAnnounce(float VW, float VH)
+        {
+            float t = Time.time - announceAt;
+            if (t < 0f || t > 1.8f) return;
+            EnsureCardStyles();
+            float a = t < 0.15f ? t / 0.15f : (t > 1.4f ? 1f - (t - 1.4f) / 0.4f : 1f);
+            float slide = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / 0.25f));
+            var c = PowerUp.ColorFor(announceType);
+            float w = 520f, cx = VW / 2f - w / 2f + slide * 60f, cy = VH * 0.22f;
+            // soft band behind
+            GUI.color = new Color(0f, 0f, 0f, 0.5f * a);
+            GUI.DrawTexture(new Rect(cx - 30f, cy - 8f, w + 60f, 96f), shadeBottom);
+            GUI.color = new Color(c.r, c.g, c.b, a);
+            GUI.DrawTexture(new Rect(cx, cy + 80f, w * Mathf.Clamp01(t / 0.4f), 2f), Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 1f, 1f, a);
+            float pulse = 1f + 0.08f * Mathf.Sin(t * 12f) * Mathf.Clamp01(1f - t);
+            GUI.DrawTexture(new Rect(cx + 8f - 4f * pulse, cy + 6f - 4f * pulse, 64f * pulse, 64f * pulse), Minimap.FruitIcon(announceType));
+            cAnnName.normal.textColor = new Color(1f, 1f, 1f, a);
+            cAnnEffect.normal.textColor = new Color(Mathf.Lerp(c.r, 1f, 0.5f), Mathf.Lerp(c.g, 1f, 0.5f), Mathf.Lerp(c.b, 1f, 0.5f), a);
+            GUI.Label(new Rect(cx + 92f, cy + 2f, w, 46f), Spaced(PowerUp.NameFor(announceType)), cAnnName);
+            GUI.Label(new Rect(cx + 94f, cy + 48f, w, 24f), $"{PowerUp.FruitFor(announceType)}  ·  {LongEffect(announceType)}", cAnnEffect);
+            GUI.color = Color.white;
+        }
+
+        /// <summary>Energy Blast: a thin ring that fills while recharging, key hint under it.</summary>
+        void DrawCleanBlast(Rect r, GameManager gm)
+        {
+            if (blast == null && PlayerMovement.Instance != null) blast = PlayerMovement.Instance.GetComponent<EnergyBlast>();
+            if (blast == null) return;
+            bool enough = gm.Energy >= blast.cost;
+            float ready = blast.CanUse ? 1f : (enough ? 0.55f : 0.25f);
+            GUI.color = new Color(1f, 1f, 1f, 0.25f);
+            GUI.DrawTexture(r, ringTexC);
+            GUI.color = new Color(Accent.r, Accent.g, Accent.b, ready);
+            float p = blast.CooldownProgress;
+            // fill: inner disc grows with the recharge
+            float s = r.width * 0.5f * Mathf.Clamp01(p);
+            if (dotTex == null) dotTex = MakeDot();
+            GUI.DrawTexture(new Rect(r.center.x - s / 2f, r.center.y - s / 2f, s, s), dotTex);
+            GUI.DrawTexture(r, ringTexC);
+            GUI.color = Color.white;
+            string text = blast.CooldownLeft > 0f ? blast.CooldownLeft.ToString("0.0") : (enough ? "SPACE" : $"{blast.cost:0} EN");
+            GUI.Label(new Rect(r.x - 30f, r.yMax + 2f, r.width + 60f, 14f), text, cKey);
+        }
+
+        void DrawDevourEdgeV(float VW, float VH)
+        {
+            var powers = PlayerPowers.Instance;
+            if (powers == null || !powers.DevourActive) return;
+            if (edgeGlow == null) edgeGlow = MakeEdgeGlow();
+            float a = 0.12f;
+            if (powers.DevourLeft < powers.devourWarning) a *= 0.6f + 0.4f * Mathf.Sin(Time.time * 5f);
+            var c = PowerUp.ColorFor(PowerUpType.Devour);
+            GUI.color = new Color(c.r, c.g, c.b, a);
+            GUI.DrawTexture(new Rect(0, 0, VW, VH), edgeGlow);
+            GUI.color = Color.white;
+        }
+
+        void DrawPopupsV(float k)
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+            for (int i = popups.Count - 1; i >= 0; i--)
+            {
+                var p = popups[i];
+                float t = (Time.time - p.start) / p.life;
+                if (t >= 1f) { popups.RemoveAt(i); continue; }
+                var sp = cam.WorldToScreenPoint(p.pos + Vector3.up * t * 0.8f);
+                if (sp.z < 0f) continue;
+                var rect = new Rect(sp.x / k - 120f, (Screen.height - sp.y) / k - 14f, 240f, 28f);
+                float a = t < 0.7f ? 1f : 1f - (t - 0.7f) / 0.3f;
+                cValue.normal.textColor = new Color(0f, 0f, 0f, a * 0.7f);
+                var st = new GUIStyle(cValue) { alignment = TextAnchor.MiddleCenter, fontSize = 20 };
+                GUI.Label(new Rect(rect.x + 1.5f, rect.y + 1.5f, rect.width, rect.height), p.text, st);
+                st.normal.textColor = new Color(Mathf.Lerp(p.color.r, 1f, 0.3f), Mathf.Lerp(p.color.g, 1f, 0.3f), Mathf.Lerp(p.color.b, 1f, 0.3f), a);
+                GUI.Label(rect, p.text, st);
+                cValue.normal.textColor = TextWhite;
+            }
+        }
+
+        /// <summary>Off-screen Bugs: small, softer chevrons at the screen edge (Bug colour mixed with white).</summary>
+        void DrawBugArrowsV(float VW, float VH)
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+            const float margin = 0.035f;
+            foreach (var bug in BugAI.All)
+            {
+                if (bug.IsEaten) continue;
+                Vector3 vp = cam.WorldToViewportPoint(bug.transform.position);
+                bool behind = vp.z < 0f;
+                if (!behind && vp.x > margin && vp.x < 1f - margin && vp.y > margin && vp.y < 1f - margin) continue;
+                var dir = new Vector2(vp.x - 0.5f, vp.y - 0.5f);
+                if (behind) dir = -dir;
+                if (dir.sqrMagnitude < 1e-6f) dir = Vector2.down;
+                float scale = (0.5f - margin) / Mathf.Max(Mathf.Abs(dir.x), Mathf.Abs(dir.y));
+                var edge = new Vector2(0.5f, 0.5f) + dir * scale;
+                var center = new Vector2(edge.x * VW, (1f - edge.y) * VH);
+                float angle = Mathf.Atan2(-dir.y, dir.x) * Mathf.Rad2Deg;
+                var old = GUI.matrix;
+                GUIUtility.RotateAroundPivot(angle, center * UiScale);   // pivot is in screen pixels (GUI.matrix is scaled)
+                var tint = Color.Lerp(bug.BodyColor, Color.white, 0.3f);
+                tint.a = 0.75f;
+                GUI.color = tint;
+                GUI.DrawTexture(new Rect(center.x - 11f, center.y - 11f, 22f, 22f), arrowIcon);
+                GUI.matrix = old;
+                GUI.color = Color.white;
+            }
+        }
+
+        /// <summary>Black shade: from a corner (top left) or from the bottom edge, fading to transparent.</summary>
+        static Texture2D MakeShade(int w, int h, bool corner)
+        {
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    float a;
+                    if (corner)
+                    {
+                        float u = x / (float)(w - 1), v = 1f - y / (float)(h - 1);   // v: 0 at top
+                        float d = Mathf.Sqrt(u * u * 0.8f + v * v);
+                        a = Mathf.Clamp01(1f - d);
+                        a = a * a * 0.62f;
+                    }
+                    else
+                    {
+                        float u = Mathf.Abs(x / (float)(w - 1) - 0.5f) * 2f, v = y / (float)(h - 1);  // v: 0 at bottom
+                        a = Mathf.Clamp01(1f - v) * Mathf.Clamp01(1f - u * u);
+                        a = a * a * 0.55f;
+                    }
+                    tex.SetPixel(x, y, new Color(0f, 0f, 0f, a));
+                }
+            tex.Apply();
+            return tex;
+        }
+
+        static Texture2D MakeDiamond(int size, bool filled)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+            float h = size / 2f;
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float d = Mathf.Abs(x - h + 0.5f) + Mathf.Abs(y - h + 0.5f);
+                    float a = filled ? Mathf.Clamp01(h - 1f - d) : Mathf.Clamp01(1.4f - Mathf.Abs(d - (h - 2.5f)));
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            return tex;
+        }
+
+        static Texture2D MakeRing(int size, float width)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+            float R = size / 2f - width - 1f;
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float r = new Vector2(x - size / 2f + 0.5f, y - size / 2f + 0.5f).magnitude;
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01(width - Mathf.Abs(r - R))));
                 }
             tex.Apply();
             return tex;

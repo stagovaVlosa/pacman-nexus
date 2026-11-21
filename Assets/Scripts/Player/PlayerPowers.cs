@@ -111,9 +111,12 @@ namespace Nexus
                 case PowerUpType.Magnet: MagnetLeft = magnetTime; break;
             }
             if (GameManager.Instance != null) GameManager.Instance.AddScore(50);
-            if (GameHUD.Instance != null) GameHUD.Instance.Popup(at + Vector3.up * 0.8f, PowerUp.NameFor(type), PowerUp.ColorFor(type), 1.4f);
-            if (byteCompanion == null) byteCompanion = FindFirstObjectByType<ByteCompanion>();
-            if (byteCompanion != null) byteCompanion.Say(ByteLine(type), 3.5f);
+            if (!RealisticCity.Active)   // realistic look: the HUD shows a power card instead (GameHUD.DrawPowerCards)
+            {
+                if (GameHUD.Instance != null) GameHUD.Instance.Popup(at + Vector3.up * 0.8f, PowerUp.NameFor(type), PowerUp.ColorFor(type), 1.4f);
+                if (byteCompanion == null) byteCompanion = FindFirstObjectByType<ByteCompanion>();
+                if (byteCompanion != null) byteCompanion.Say(ByteLine(type), 3.5f);
+            }
             OnActivated?.Invoke(type);
         }
 
